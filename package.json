@@ -1,0 +1,103 @@
+{
+  "name": "tgplayer",
+  "version": "0.1.0",
+  "description": "A Telegram-first desktop music player inspired by PixelPlayer",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "check": "node --check src/app.js && node --check electron/main.cjs && node --check electron/preload.cjs",
+    "dist": "npm run check && electron-builder --win nsis --x64",
+    "portable": "npm run check && electron-builder --win portable --x64"
+  },
+  "devDependencies": {
+    "electron": "^31.0.2",
+    "electron-builder": "^24.13.3"
+  },
+  "optionalDependencies": {
+    "telegram": "^2.26.22"
+  },
+  "build": {
+    "appId": "com.tgplayer.desktop",
+    "productName": "TGPlayer",
+    "artifactName": "TGPlayer-Setup-${version}.${ext}",
+    "asar": true,
+    "icon": "assets/icon.png",
+    "directories": {
+      "output": "dist-final",
+      "buildResources": "assets"
+    },
+    "files": [
+      "electron/**/*",
+      "src/**/*",
+      "assets/icon.png",
+      "package.json",
+      "node_modules/@cryptography/aes/**/*",
+      "node_modules/async-mutex/**/*",
+      "node_modules/base64-js/**/*",
+      "node_modules/big-integer/**/*",
+      "node_modules/buffer/**/*",
+      "node_modules/bufferutil/**/*",
+      "node_modules/d/**/*",
+      "node_modules/debug/**/*",
+      "node_modules/dom-serializer/**/*",
+      "node_modules/domelementtype/**/*",
+      "node_modules/domhandler/**/*",
+      "node_modules/domutils/**/*",
+      "node_modules/entities/**/*",
+      "node_modules/es5-ext/**/*",
+      "node_modules/es6-iterator/**/*",
+      "node_modules/es6-symbol/**/*",
+      "node_modules/esniff/**/*",
+      "node_modules/event-emitter/**/*",
+      "node_modules/ext/**/*",
+      "node_modules/graceful-fs/**/*",
+      "node_modules/htmlparser2/**/*",
+      "node_modules/ieee754/**/*",
+      "node_modules/imurmurhash/**/*",
+      "node_modules/ip-address/**/*",
+      "node_modules/is-typedarray/**/*",
+      "node_modules/mime/**/*",
+      "node_modules/ms/**/*",
+      "node_modules/next-tick/**/*",
+      "node_modules/node-gyp-build/**/*",
+      "node_modules/node-localstorage/**/*",
+      "node_modules/pako/**/*",
+      "node_modules/path-browserify/**/*",
+      "node_modules/real-cancellable-promise/**/*",
+      "node_modules/slide/**/*",
+      "node_modules/smart-buffer/**/*",
+      "node_modules/socks/**/*",
+      "node_modules/store2/**/*",
+      "node_modules/telegram/**/*",
+      "node_modules/ts-custom-error/**/*",
+      "node_modules/tslib/**/*",
+      "node_modules/type/**/*",
+      "node_modules/typedarray-to-buffer/**/*",
+      "node_modules/utf-8-validate/**/*",
+      "node_modules/websocket/**/*",
+      "node_modules/write-file-atomic/**/*",
+      "node_modules/yaeti/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "verifyUpdateCodeSignature": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "TGPlayer",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false
+    }
+  }
+}

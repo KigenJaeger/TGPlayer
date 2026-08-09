@@ -1,0 +1,12 @@
+node_modules/
+.tgplayer-data/
+dist/
+
+# Editor/tooling session metadata (topic titles, timestamps) -- not part of the project.
+.reasonix/
+
+# electron-builder output and its download cache (electron zip, nsis, winCodeSign).
+# The cache is kept on disk so rebuilds skip the ~110MB download, but it is
+# machine-local and must never be committed.
+dist-final/
+.build-cache/

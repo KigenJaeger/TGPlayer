@@ -1,0 +1,575 @@
+/* Material You cool-blue tonal palette. Surfaces carry a slight blue tint rather
+   than being neutral grey, which is what keeps the whole interface reading as
+   cold instead of merely desaturated.
+
+   This block is the "Cool Blue" preset as well as the fallback: a preset only
+   needs to declare what it changes, so anything a preset omits lands here. */
+:root {
+  /* Panel fill for sidebar, player bar, cards. Presets override this so the
+     panel tint follows the preset's temperature instead of being a fixed
+     warm grey, which is what used to make dark mode read muddy. */
+  --panel: rgba(255,254,250,.72);
+  --panel-strong: rgba(255,254,250,.94);
+  --panel-soft: rgba(255,254,250,.58);
+  /* The cloud card in the sidebar was hardcoded green. Routing it through
+     variables lets each preset keep it in family. */
+  --cloud-bg: rgba(237,240,232,.86);
+  --cloud-line: rgba(120,140,93,.22);
+  --danger: #a94f4f;
+  /* Glyph colour for icons sitting on an --accent fill. Light presets want
+     white; Mono-dark and High Contrast use bright accents where white would be
+     unreadable, so they flip this to near-black. */
+  --on-accent: #fff;
+  --scroll-thumb: #b9c4cf;
+  --shell-border: rgba(255,255,255,.76);
+  --ink: #131a21;
+  --paper: #f4f7fb;
+  --paper-soft: #e9eff6;
+  --paper-deep: #dae4ee;
+  --surface: #fbfcfe;
+  --line: rgba(19, 26, 33, .10);
+  --line-strong: rgba(19, 26, 33, .17);
+  --muted: #4c5a67;
+  --muted-light: #78868f;
+  --accent: #4a7ba8;
+  --accent-dark: #35618a;
+  --accent-wash: #dfeaf5;
+  --blue: #6a9bcc;
+  --blue-wash: #e8f0f7;
+  --green: #5d8c86;
+  --green-wash: #e6efee;
+  --font-heading: "Poppins", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans SC", "Hiragino Sans GB", Arial, sans-serif;
+  --font-body: "Lora", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans SC", Georgia, serif;
+  --ease: cubic-bezier(.2, .75, .2, 1);
+}
+
+* { box-sizing: border-box; }
+html, body { min-width: 100%; min-height: 100%; margin: 0; background: transparent; color: var(--ink); }
+body { overflow: hidden; font-family: var(--font-body); }
+button, input { font: inherit; }
+button { border: 0; cursor: pointer; color: inherit; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+/* Icon system: the sprite is hidden, every icon inherits currentColor and sizes with font-size. */
+.icon-sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+/* Material You weight: heavier strokes, fully rounded terminals. */
+.icon { width: 1em; height: 1em; flex: none; fill: none; stroke: currentColor; stroke-width: 2.3; stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
+.icon-fill { fill: currentColor; stroke: none; }
+.heart-button.liked .icon, .filter-pill.active .icon { fill: currentColor; }
+/* Per-context icon sizing, so no glyph depends on a font metric. */
+.nav-icon .icon { width: 19px; height: 19px; }
+.tg-glyph .icon { width: 16px; height: 16px; }
+.search-box > .icon { width: 17px; height: 17px; }
+.icon-button .icon { width: 19px; height: 19px; }
+.icon-button.tiny .icon, .icon-button.subtle .icon { width: 17px; height: 17px; }
+.window-controls.integrated button .icon { width: 15px; height: 15px; stroke-width: 2.1; }
+.primary-button, .soft-button, .text-button, .cloud-action { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.primary-button .icon, .soft-button .icon, .text-button .icon, .cloud-action .icon { width: 15px; height: 15px; }
+.round-play .icon { width: 26px; height: 26px; }
+.heart-button .icon { width: 19px; height: 19px; }
+.track-play .icon { width: 14px; height: 14px; }
+.control-button .icon { width: 21px; height: 21px; stroke-width: 2.5; }
+.control-button.play-main .icon { width: 19px; height: 19px; }
+.channel-art .icon { width: 22px; height: 22px; }
+.channel-action .icon { width: 17px; height: 17px; }
+.track-art .icon { width: 21px; height: 21px; }
+.art-disc-main .icon { width: 50px; height: 50px; stroke-width: 1.6; }
+.art-disc-small .icon { width: 24px; height: 24px; }
+.empty-orb .icon { width: 28px; height: 28px; }
+.note-icon .icon { width: 17px; height: 17px; }
+.toast-icon .icon { width: 13px; height: 13px; stroke-width: 3; }
+.modal-close .icon { width: 17px; height: 17px; }
+.volume .icon { width: 17px; height: 17px; }
+/* Glyphs that sit on a dark or saturated fill stay pure white. */
+.round-play, .control-button.play-main, .channel-art, .track-art, .art-disc, .toast-icon, .avatar-button { color: var(--on-accent); }
+/* .track-play sits on an --ink fill rather than --accent, so it takes the paper
+   colour -- in dark mode --ink is near-white and a white glyph vanished. */
+.track-play { color: var(--paper); }
+
+::-webkit-scrollbar { width: 7px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border: 2px solid transparent; border-radius: 20px; background-clip: padding-box; }
+
+/* A transparent 10px frame lets the CSS edge render as a smooth, visible rounded window. */
+.app-shell {
+  position: relative; display: flex; width: calc(100vw - 20px); height: calc(100vh - 20px); min-height: 0;
+  margin: 10px; overflow: hidden; isolation: isolate; border: 1px solid var(--shell-border); border-radius: 30px;
+  background: var(--paper); box-shadow: 0 20px 42px rgba(20,20,19,.24), 0 3px 8px rgba(20,20,19,.10);
+}
+.app-shell::before { content: ""; position: absolute; z-index: -1; inset: 0; pointer-events: none; background: radial-gradient(circle at 80% -10%, rgba(74,123,168,.11), transparent 29%), radial-gradient(circle at 18% 100%, rgba(106,155,204,.11), transparent 31%); }
+.window-drag-region { position: absolute; z-index: 10; top: 0; left: 0; right: 470px; height: 34px; -webkit-app-region: drag; }
+.ambient { position: absolute; z-index: -1; width: 460px; aspect-ratio: 1; pointer-events: none; opacity: .22; }
+.ambient-a { top: 16%; right: 2%; background: radial-gradient(circle at center, var(--accent) 0%, transparent 68%); }
+.ambient-b { bottom: -26%; left: 13%; background: radial-gradient(circle at center, var(--blue) 0%, transparent 68%); }
+
+/* Sidebar */
+.sidebar { z-index: 2; width: 246px; padding: 30px 18px 19px; display: flex; flex-direction: column; border-right: 1px solid var(--line); background: var(--panel); }
+.brand-row { display: flex; align-items: center; gap: 11px; padding: 0 9px 44px; }
+.brand-mark { width: 39px; height: 39px; flex: none; border-radius: 14px; overflow: hidden; box-shadow: 0 6px 18px rgba(106,155,204,.19); }
+.brand-mark svg { display: block; width: 100%; height: 100%; }
+.brand-name, h1, h2, h3, .nav-item, .eyebrow, .sidebar-label, .primary-button, .soft-button, .filter-pill, .cloud-title, .modal-brand { font-family: var(--font-heading); }
+.brand-name { color: var(--ink); font-size: 19px; font-weight: 700; letter-spacing: -.065em; line-height: 1; }
+.brand-caption { margin-top: 4px; color: var(--muted-light); font: 700 9px var(--font-heading); letter-spacing: .21em; }
+.sidebar-label, .eyebrow { color: var(--muted); font: 700 10px var(--font-heading); letter-spacing: .16em; }
+.sidebar-label { padding: 0 12px 11px; }
+.nav-list { display: grid; gap: 3px; }
+.nav-item { width: 100%; min-height: 42px; padding: 0 12px; display: flex; align-items: center; gap: 12px; border-radius: 12px; background: transparent; color: var(--muted); font-size: 13px; font-weight: 500; text-align: left; transition: background .22s var(--ease), color .22s var(--ease), transform .22s var(--ease); }
+.nav-item:hover { background: rgba(20,20,19,.045); color: var(--ink); transform: translateX(2px); }
+.nav-item.active { color: var(--ink); background: var(--accent-wash); box-shadow: inset 3px 0 0 var(--accent); }
+.nav-icon { width: 20px; display: grid; place-items: center; opacity: .92; }
+.nav-icon .icon { width: 19px; height: 19px; }
+.nav-item.active .nav-icon { color: var(--accent); opacity: 1; }
+.nav-dot { width: 5px; height: 5px; margin-left: auto; border-radius: 50%; background: var(--accent); }
+.nav-count { min-width: 20px; margin-left: auto; color: var(--muted-light); font-size: 11px; text-align: right; }
+.sidebar-spacer { flex: 1; min-height: 22px; }
+.cloud-card { position: relative; overflow: hidden; padding: 15px; border: 1px solid var(--cloud-line); border-radius: 17px; background: var(--cloud-bg); }
+.cloud-card::after { content: ""; position: absolute; right: -30px; bottom: -50px; width: 120px; height: 120px; border: 1px solid var(--cloud-line); border-radius: 50%; }
+.cloud-card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 13px; }
+.tg-glyph { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 8px; background: var(--surface); color: var(--green); }
+.tg-glyph .icon { width: 16px; height: 16px; }
+.cloud-live { color: var(--green); font: 700 9px var(--font-heading); letter-spacing: .11em; }
+.cloud-live i { display: inline-block; width: 5px; height: 5px; margin: 0 4px 1px 0; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px rgba(120,140,93,.13); }
+.cloud-title { position: relative; z-index: 1; margin-bottom: 4px; font-size: 13px; font-weight: 600; }
+.cloud-subtitle { position: relative; z-index: 1; max-width: 168px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.cloud-action { position: relative; z-index: 1; margin-top: 13px; padding: 0; display: inline-flex; align-items: center; gap: 5px; background: transparent; color: var(--green); font: 600 11px var(--font-heading); }
+.cloud-action .icon { width: 16px; height: 16px; }
+.sidebar-footer { display: flex; align-items: center; justify-content: space-between; padding: 17px 8px 0; color: var(--muted-light); font-size: 10px; }
+
+/* Main / intentionally no full-width top bar */
+.main-area { position: relative; z-index: 1; flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.topbar { position: absolute; z-index: 5; top: 20px; right: 29px; display: flex; align-items: center; height: 38px; }
+.crumb { display: none; }
+.topbar-actions { display: flex; align-items: center; gap: 8px; }
+.search-box { width: 255px; height: 37px; display: flex; align-items: center; gap: 8px; padding: 0 9px 0 12px; border: 1px solid rgba(20,20,19,.10); border-radius: 12px; background: var(--panel); box-shadow: 0 4px 18px rgba(20,20,19,.045); color: var(--muted-light); transition: box-shadow .2s var(--ease), border-color .2s var(--ease); }
+.search-box:focus-within { border-color: rgba(74,123,168,.54); box-shadow: 0 0 0 4px rgba(74,123,168,.10); }
+.search-box > .icon { width: 17px; height: 17px; }
+.search-box input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--ink); font-size: 12px; }
+.search-box input::placeholder { color: var(--muted-light); }
+.search-box kbd { padding: 2px 5px; border: 1px solid var(--line); border-radius: 5px; color: var(--muted-light); font: 700 9px var(--font-heading); }
+.icon-button { width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 11px; background: var(--panel); color: var(--muted); transition: background-color .2s var(--ease), border-color .2s var(--ease), color .2s var(--ease), box-shadow .2s var(--ease), transform .2s var(--ease), opacity .2s var(--ease); }
+.icon-button:hover { color: var(--ink); background: var(--surface); border-color: var(--line-strong); }
+.icon-button.tiny { width: 26px; height: 26px; border-color: transparent; box-shadow: none; background: transparent; }
+.icon-button.subtle { width: 25px; height: 25px; border: 0; background: transparent; }
+.avatar-button { width: 35px; height: 35px; border-radius: 50%; background: var(--blue); color: #fff; font: 700 11px var(--font-heading); box-shadow: 0 5px 14px rgba(106,155,204,.28); }
+.window-controls.integrated { display: flex; align-items: center; gap: 2px; margin-left: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 11px; background: var(--panel); -webkit-app-region: no-drag; }
+.window-controls.integrated button { width: 25px; height: 25px; display: grid; place-items: center; border-radius: 7px; background: transparent; color: var(--muted); font: 13px Arial, sans-serif; transition: background-color .18s ease, border-color .18s ease, color .18s ease, box-shadow .18s ease, transform .18s ease, opacity .18s ease; }
+.window-controls.integrated button:hover { color: var(--ink); background: var(--paper-deep); }
+.window-controls.integrated .window-close:hover { background: var(--accent); color: var(--on-accent); }
+
+.page-wrap { flex: 1; overflow: auto; padding: 34px 42px 136px; scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent; }
+.page { display: none; max-width: 1190px; margin: 0 auto; animation: reveal .2s var(--ease) both; }
+.page.active { display: block; }
+@keyframes reveal { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+/* Home */
+.welcome-row { display: flex; align-items: center; justify-content: space-between; min-height: 92px; padding-right: 410px; margin-bottom: 27px; }
+.eyebrow { margin: 0 0 9px; }
+.eyebrow-pulse { display: inline-block; width: 6px; height: 6px; margin: 0 5px 1px 0; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px rgba(120,140,93,.13); }
+.welcome-row h1, .generic-head h1 { margin: 0; font: 600 36px/1.06 var(--font-heading); letter-spacing: -.07em; }
+.accent-dot { color: var(--accent); }
+.lede { margin: 9px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.round-play { width: 56px; height: 56px; display: grid; place-items: center; border-radius: 50%; background: var(--accent); color: #fff; box-shadow: 0 12px 24px rgba(74,123,168,.26); transition: background-color .25s var(--ease), border-color .25s var(--ease), color .25s var(--ease), box-shadow .25s var(--ease), transform .25s var(--ease), opacity .25s var(--ease); }
+.round-play:hover { background: var(--accent-dark); transform: translateY(-2px) scale(1.02); }
+
+.hero-grid { display: grid; grid-template-columns: minmax(0,1.65fr) minmax(272px,.78fr); gap: 17px; }
+.hero-card, .now-card { position: relative; min-height: 290px; overflow: hidden; border: 1px solid var(--line); border-radius: 22px; }
+.hero-card { padding: 29px 31px; background: linear-gradient(121deg, #f6e4dc 0%, #f9eee8 47%, #f2ede4 100%); }
+.hero-card::before { content: ""; position: absolute; left: 29px; top: 26px; width: 53px; height: 3px; background: var(--accent); }
+.hero-copy { position: relative; z-index: 2; width: 56%; padding-top: 18px; }
+.hero-kicker { color: var(--accent-dark); font: 700 9px var(--font-heading); letter-spacing: .15em; }
+.hero-copy h2 { margin: 14px 0 9px; font: 600 34px/.98 var(--font-heading); letter-spacing: -.07em; }
+.hero-copy h2 em { color: var(--accent-dark); font-style: normal; }
+.hero-copy p { margin: 0 0 19px; color: #5f5c57; font-size: 12px; line-height: 1.55; }
+.primary-button, .soft-button { min-height: 37px; padding: 0 15px; border-radius: 10px; font-size: 11px; font-weight: 600; transition: background-color .2s var(--ease), border-color .2s var(--ease), color .2s var(--ease), box-shadow .2s var(--ease), transform .2s var(--ease), opacity .2s var(--ease); }
+.primary-button { background: var(--ink); color: var(--paper); box-shadow: 0 5px 13px rgba(20,20,19,.15); }
+.primary-button:hover { background: var(--accent-dark); transform: translateY(-1px); }
+.soft-button { border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+.soft-button:hover { background: var(--paper-deep); }
+/* Nothing told the user a button was mid-flight: a disabled button looked
+   identical to an idle one. Reduce-motion clamps animations, so the busy state
+   has to read from colour as well, never from the spin alone. */
+.primary-button:disabled, .soft-button:disabled, .icon-button:disabled { opacity: .55; cursor: default; transform: none; }
+.icon-button.is-busy { opacity: 1; color: var(--accent-dark); border-color: var(--accent); background: var(--accent-wash); }
+.primary-button.is-busy, .soft-button.is-busy { opacity: 1; }
+.primary-button.is-busy .icon, .soft-button.is-busy .icon { transform-origin: 50% 50%; animation: sync-spin 1s linear infinite; }
+.icon-button.is-busy .icon { transform-origin: 50% 50%; animation: sync-spin 1s linear infinite; }
+@keyframes sync-spin { to { transform: rotate(360deg); } }
+/* Inline affordance inside .auth-note copy: reads as a link, not a third button
+   competing with the primary action. */
+.link-button { padding: 0; border: 0; background: none; color: var(--accent-dark); font: 700 12px var(--font-body); text-decoration: underline; cursor: pointer; }
+.link-button:hover { color: var(--accent); }
+.orbit-art { position: absolute; right: 24px; top: 8px; width: 267px; height: 267px; }
+.orbit-ring { position: absolute; border: 1px solid rgba(74,123,168,.30); border-radius: 50%; }
+.ring-one { inset: 22px; }.ring-two { inset: 48px; border-color: rgba(106,155,204,.40); }
+.art-disc { position: absolute; display: grid; place-items: center; border-radius: 50%; color: white; font-family: Arial, sans-serif; }
+.art-disc-main { width: 108px; height: 108px; top: 80px; left: 82px; background: var(--blue); box-shadow: inset 0 0 0 12px rgba(255,255,255,.16), 0 15px 27px rgba(106,155,204,.27); font-size: 32px; }
+.art-disc-small { width: 47px; height: 47px; background: var(--accent); box-shadow: 0 10px 17px rgba(74,123,168,.19); font-size: 16px; }.art-disc-small.one { top: 33px; right: 34px; }.art-disc-small.two { bottom: 26px; left: 38px; background: var(--green); }
+.hero-glow { position: absolute; right: -70px; bottom: -80px; width: 250px; height: 250px; border-radius: 50%; border: 1px solid rgba(20,20,19,.08); }
+
+.now-card { padding: 18px 18px 17px; background: var(--panel); }
+.section-top { display: flex; justify-content: space-between; align-items: center; color: var(--muted-light); font: 700 9px var(--font-heading); letter-spacing: .13em; }
+.now-art { position: relative; height: 132px; margin: 14px 0; overflow: hidden; border-radius: 15px; background: #e9d0c6; }
+/* Cool tonal range only: every gradient stays in the blue-to-slate family so no
+   artwork tile reintroduces a warm cast. */
+.art-sunset { background: linear-gradient(155deg, #bcd6ea, #4a7ba8 56%, #2c4d6e); }.art-blue { background: linear-gradient(135deg, #c7dced, #5a8fc0 68%, #33587d); }.art-mint { background: linear-gradient(135deg, #cadfdd, #5d8c8c 70%, #3a5a5c); }.art-rose { background: linear-gradient(135deg, #d3dced, #7d8fbd 70%, #4e5c85); }.art-gold { background: linear-gradient(135deg, #cfdce4, #7a97ab 70%, #4b6272); }.art-violet { background: linear-gradient(135deg, #d5d6ec, #8286bd 68%, #515488); }
+.sun { position: absolute; right: 22px; top: 23px; width: 36px; height: 36px; border-radius: 50%; background: rgba(238,247,255,.92); }.mountain { position: absolute; bottom: -19px; width: 130px; height: 84px; transform: rotate(45deg); background: rgba(38,58,78,.44); }.mountain-a { left: 22px; }.mountain-b { right: -36px; bottom: -33px; background: rgba(28,44,60,.42); }.art-label { position: absolute; left: 13px; top: 14px; color: rgba(255,255,255,.9); font: 700 9px/1.05 var(--font-heading); letter-spacing: .14em; }
+.now-meta { display: flex; align-items: center; justify-content: space-between; gap: 10px; }.now-meta h3 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: -.035em; }.now-meta p { max-width: 190px; margin: 4px 0 0; overflow: hidden; color: var(--muted); font-size: 11px; white-space: nowrap; text-overflow: ellipsis; }
+.heart-button { width: 28px; height: 28px; display: grid; flex: none; place-items: center; border-radius: 9px; background: transparent; color: var(--muted-light); font-family: Arial, sans-serif; transition: background-color .2s var(--ease), border-color .2s var(--ease), color .2s var(--ease), box-shadow .2s var(--ease), transform .2s var(--ease), opacity .2s var(--ease); }.heart-button:hover, .heart-button.liked { color: var(--accent); background: var(--accent-wash); }
+.now-progress { margin-top: 12px; }.progress-line { height: 3px; overflow: hidden; border-radius: 99px; background: var(--paper-deep); }.progress-line span { display: block; height: 100%; border-radius: inherit; background: var(--accent); }.time-row { display: flex; justify-content: space-between; margin-top: 6px; color: var(--muted-light); font: 700 10px var(--font-heading); }
+
+.section-block { margin-top: 32px; }.section-heading { display: flex; align-items: end; justify-content: space-between; margin-bottom: 13px; }.section-heading h2 { margin: 0; font-size: 22px; line-height: 1; letter-spacing: -.055em; }.text-button { padding: 5px 0; background: transparent; color: var(--accent-dark); font: 600 12px var(--font-heading); }.text-button:hover { color: var(--ink); }.text-button span { margin-left: 3px; font-size: 13px; }
+.channel-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 13px; }.channel-grid.large { grid-template-columns: repeat(3, minmax(0,1fr)); }
+.channel-card { position: relative; min-width: 0; padding: 15px; border: 1px solid var(--line); border-radius: 17px; background: var(--panel); transition: transform .23s var(--ease), border-color .23s var(--ease), box-shadow .23s var(--ease); }.channel-card:hover { border-color: rgba(106,155,204,.36); box-shadow: 0 12px 24px rgba(20,20,19,.07); transform: translateY(-3px); }
+.channel-art { width: 38px; height: 38px; display: grid; place-items: center; margin-bottom: 13px; border-radius: 12px; color: #fff; font: 700 17px Arial, sans-serif; }.channel-art.terracotta { background: var(--accent); }.channel-art.blue { background: var(--blue); }.channel-art.green { background: var(--green); }.channel-art.lilac { background: #8286bd; }.channel-art.amber { background: #7a97ab; }.channel-art.teal { background: #5d8c8c; }.channel-art.rose { background: #7d8fbd; }
+.channel-action { position: absolute; top: 13px; right: 13px; width: 25px; height: 25px; border-radius: 8px; background: var(--paper-soft); color: var(--muted); font: 16px Arial, sans-serif; }.channel-action:hover { background: var(--blue-wash); color: var(--blue); }.channel-card h3 { margin: 0; overflow: hidden; font-size: 14px; font-weight: 600; letter-spacing: -.035em; white-space: nowrap; text-overflow: ellipsis; }.channel-card p { margin: 5px 0 11px; overflow: hidden; color: var(--muted); font-size: 11px; white-space: nowrap; text-overflow: ellipsis; }.sync-state { color: var(--green); font: 700 10px var(--font-heading); letter-spacing: .04em; }.sync-state i { display: inline-block; width: 5px; height: 5px; margin: 0 4px 1px 0; border-radius: 50%; background: var(--green); }
+
+.track-list { border: 1px solid var(--line); border-radius: 17px; overflow: hidden; background: var(--panel-soft); }.track-row { display: grid; grid-template-columns: 42px minmax(170px,1fr) minmax(130px,.8fr) 54px 72px; align-items: center; gap: 12px; min-height: 68px; content-visibility: auto; contain-intrinsic-size: auto 68px; padding: 10px 15px; border-bottom: 1px solid var(--line); transition: background .18s ease; }.track-row:last-child { border-bottom: 0; }.track-row:hover { background: rgba(106,155,204,.065); }.track-art { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 12px; color: #fff; }.track-main { min-width: 0; display: grid; gap: 4px; }.track-main strong { overflow: hidden; font: 600 13px var(--font-heading); letter-spacing: -.025em; white-space: nowrap; text-overflow: ellipsis; }.track-main span, .track-channel, .track-time { overflow: hidden; color: var(--muted); font-size: 11px; white-space: nowrap; text-overflow: ellipsis; }.track-time { text-align: right; }.track-row-actions { display: flex; justify-content: end; gap: 4px; }.track-play { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 11px; background: var(--ink); color: #fff; opacity: 0; transform: scale(.88); transition: background-color .18s var(--ease), border-color .18s var(--ease), color .18s var(--ease), box-shadow .18s var(--ease), transform .18s var(--ease), opacity .18s var(--ease); }.track-row:hover .track-play { opacity: 1; transform: none; }
+
+/* Generic pages */
+.generic-head { display: flex; align-items: center; justify-content: space-between; min-height: 92px; padding-right: 434px; margin-bottom: 25px; }.filter-row { display: flex; gap: 7px; margin: -5px 0 18px; }.filter-pill { min-height: 32px; padding: 0 13px; border: 1px solid var(--line); border-radius: 99px; background: var(--surface); color: var(--muted); font-size: 11px; font-weight: 600; }.filter-pill.active { background: var(--ink); border-color: var(--ink); color: var(--paper); }.queue-note { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; padding: 14px 16px; border: 1px solid rgba(106,155,204,.22); border-radius: 13px; background: var(--blue-wash); color: var(--ink); font: 600 12px var(--font-heading); }.note-icon { color: var(--blue); font-family: Arial, sans-serif; }.queue-note small { display: block; margin-top: 4px; color: var(--muted); font: 11px var(--font-body); }.toggle { width: 28px; height: 16px; margin-left: auto; border-radius: 20px; background: var(--muted-light); }.toggle::after { content: ""; display: block; width: 12px; height: 12px; margin: 2px; border-radius: 50%; background: #fff; transition: background-color .2s ease, border-color .2s ease, color .2s ease, box-shadow .2s ease, transform .2s ease, opacity .2s ease; }.toggle.on { background: var(--green); }.toggle.on::after { transform: translateX(12px); }.favorite-count { color: var(--accent-dark); font: 600 10px var(--font-heading); }.empty-favorites { min-height: 280px; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 1px dashed var(--line-strong); border-radius: 19px; text-align: center; }.empty-orb { width: 54px; height: 54px; display: grid; place-items: center; border-radius: 50%; background: var(--accent-wash); color: var(--accent); font: 24px Arial, sans-serif; }.empty-favorites h3 { margin: 14px 0 5px; font-size: 14px; }.empty-favorites p { max-width: 290px; margin: 0 0 15px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+
+/* Player */
+.player-bar { position: fixed; z-index: 4; bottom: 10px; left: 256px; right: 10px; height: 90px; display: grid; grid-template-columns: minmax(210px,.85fr) minmax(320px,1.15fr) minmax(268px,.85fr); align-items: center; gap: 18px; padding: 11px 24px; border: 1px solid rgba(20,20,19,.11); border-radius: 20px; background: var(--panel-strong); box-shadow: 0 10px 30px rgba(20,20,19,.10); }.player-track, .player-center, .player-actions, .player-controls, .player-progress, .volume { display: flex; align-items: center; }.player-track { min-width: 0; gap: 10px; }.mini-art { width: 44px; height: 44px; position: relative; overflow: hidden; flex: none; border-radius: 13px; }.mini-art .sun { transform: scale(.55); transform-origin: top right; }.mini-art .mountain { transform: scale(.58) rotate(45deg); transform-origin: bottom center; }.player-copy { min-width: 0; }.player-title { overflow: hidden; font: 600 13px var(--font-heading); letter-spacing: -.03em; white-space: nowrap; text-overflow: ellipsis; }.player-artist { overflow: hidden; margin-top: 3px; color: var(--muted); font-size: 11px; white-space: nowrap; text-overflow: ellipsis; }.player-track .heart-button { margin-left: auto; }.player-center { flex-direction: column; gap: 5px; }.player-controls { gap: 9px; justify-content: center; }.control-button { width: 34px; height: 34px; display: grid; flex: none; place-items: center; border-radius: 12px; background: transparent; color: var(--ink); transition: background .18s var(--ease), color .18s var(--ease); }.control-button:hover { background: var(--paper-deep); color: var(--ink); }.control-button.play-main { width: 44px; height: 44px; border-radius: 50%; background: var(--accent); color: var(--on-accent); box-shadow: 0 6px 16px rgba(74,123,168,.30); }.control-button.play-main:hover { background: var(--accent-dark); }.player-progress { width: min(100%, 360px); gap: 8px; color: var(--muted); font: 700 10px var(--font-heading); }.player-progress input, .volume input { appearance: none; height: 4px; flex: 1; min-width: 0; margin: 0; border-radius: 99px; accent-color: var(--accent); background: var(--paper-deep); }.player-progress input::-webkit-slider-thumb, .volume input::-webkit-slider-thumb { appearance: none; width: 13px; height: 13px; border-radius: 50%; background: var(--accent); }.player-actions { justify-content: end; gap: 6px; }.volume { width: 104px; flex: none; gap: 7px; color: var(--ink); }
+
+/* Modal and feedback */
+.modal-backdrop { position: fixed; z-index: 20; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(20,20,19,.52); opacity: 0; pointer-events: none; transition: background-color .25s var(--ease), border-color .25s var(--ease), color .25s var(--ease), box-shadow .25s var(--ease), transform .25s var(--ease), opacity .25s var(--ease); }.modal-backdrop.open { opacity: 1; pointer-events: auto; }.modal { position: relative; width: min(430px, calc(100vw - 40px)); padding: 27px; border: 1px solid var(--shell-border); border-radius: 23px; background: var(--paper); box-shadow: 0 24px 60px rgba(20,20,19,.24); transform: translateY(14px) scale(.98); transition: background-color .3s var(--ease), border-color .3s var(--ease), color .3s var(--ease), box-shadow .3s var(--ease), transform .3s var(--ease), opacity .3s var(--ease); }.modal-backdrop.open .modal { transform: none; }.modal-close { position: absolute; top: 13px; right: 14px; width: 27px; height: 27px; border-radius: 8px; background: transparent; color: var(--muted); font: 19px Arial, sans-serif; }.modal-close:hover { background: var(--paper-deep); }.modal-brand { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 11px; font-weight: 700; }.modal-brand .brand-mark.small { width: 31px; height: 31px; box-shadow: none; }.auth-mode-switch { display: flex; gap: 7px; margin: 25px 0 20px; }.auth-title { margin: 0; font: 600 24px/1.1 var(--font-heading); letter-spacing: -.06em; }.auth-subtitle { margin: 9px 0 19px; color: var(--muted); font-size: 11px; line-height: 1.6; }.auth-note { display: flex; align-items: flex-start; gap: 8px; margin: 0 0 19px; padding: 11px 12px; border: 1px solid rgba(74,123,168,.28); border-radius: 12px; background: var(--accent-wash); color: var(--ink); font-size: 10px; line-height: 1.6; }.auth-note .icon { width: 15px; height: 15px; flex: none; margin-top: 1px; color: var(--accent); }.auth-field { margin-top: 12px; }.auth-field label { display: block; margin-bottom: 6px; color: var(--muted); font: 700 9px var(--font-heading); letter-spacing: .13em; }.auth-field input { width: 100%; height: 39px; padding: 0 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); font-size: 11px; }.auth-field input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(74,123,168,.1); }.auth-actions { display: flex; justify-content: end; gap: 8px; margin-top: 19px; }.auth-steps { display: flex; justify-content: center; gap: 6px; margin-top: 20px; }.auth-step-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--paper-deep); }.auth-step-dot.active { background: var(--accent); }.modal-footnote { margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 10px; line-height: 1.55; }.toast { position: fixed; z-index: 30; left: 50%; bottom: 118px; transform: translateX(-50%) translateY(10px); display: flex; align-items: center; gap: 8px; max-width: 300px; padding: 10px 13px 10px 10px; border: 1px solid var(--line-strong); border-radius: 13px; background: var(--surface); box-shadow: 0 14px 35px rgba(20,20,19,.16); color: var(--ink); font-size: 10px; opacity: 0; pointer-events: none; transition: background-color .25s var(--ease), border-color .25s var(--ease), color .25s var(--ease), box-shadow .25s var(--ease), transform .25s var(--ease), opacity .25s var(--ease); }.toast.show { opacity: 1; transform: translateX(-50%); }.toast-icon { width: 19px; height: 19px; display: grid; place-items: center; border-radius: 50%; background: var(--green); color: #fff; font: 700 10px Arial, sans-serif; }
+
+/* Active states for controls that now carry real behaviour. */
+.nav-dot { opacity: 0; transition: opacity .2s var(--ease); }
+.nav-item.active .nav-dot { opacity: 1; }
+.nav-count + .nav-dot { margin-left: 8px; }
+.control-button.is-active { color: var(--accent); background: var(--accent-wash); }
+.track-row.is-current { background: var(--accent-wash); }
+.track-row.is-current .track-main strong { color: var(--accent-dark); }
+.track-row.is-blocked .track-main strong, .track-row.is-blocked .track-main span, .track-row.is-blocked .track-channel { opacity: .5; }
+.track-row.is-blocked .track-time { color: var(--muted); font-variant: normal; opacity: .8; }
+.track-row.is-blocked .track-play { opacity: .35; cursor: not-allowed; }
+.list-empty { padding: 30px 16px; color: var(--muted); font-size: 12px; text-align: center; }
+.toggle { padding: 0; flex: none; border: 0; }
+.volume .volume-toggle { width: 26px; height: 26px; border-radius: 9px; }
+.volume .volume-toggle .icon { width: 18px; height: 18px; }
+
+/* Output-device menu, anchored above the player bar. */
+.player-actions { position: relative; }
+.device-popover { position: absolute; right: 0; bottom: calc(100% + 12px); z-index: 12; min-width: 196px; padding: 6px; display: none; flex-direction: column; gap: 2px; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--surface); box-shadow: 0 16px 38px rgba(20,20,19,.18); }
+.device-popover.open { display: flex; }
+.popover-item { width: 100%; min-height: 34px; padding: 0 10px; display: flex; align-items: center; gap: 8px; border-radius: 10px; background: transparent; color: var(--ink); font: 500 12px var(--font-heading); text-align: left; }
+.popover-item:hover { background: var(--paper-soft); }
+.popover-item .icon { width: 15px; height: 15px; flex: none; color: var(--accent); opacity: 0; }
+.popover-item.selected .icon { opacity: 1; }
+.popover-item span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+/* Right-click track menu. Fixed rather than absolute because it is positioned
+   from pointer coordinates, and above the toast so a toast cannot cover it. */
+.track-menu { position: fixed; z-index: 40; min-width: 208px; padding: 6px; display: none; flex-direction: column; gap: 2px; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--surface); box-shadow: 0 18px 44px rgba(20,20,19,.24); }
+.track-menu.open { display: flex; }
+/* .popover-item hides its glyph by default and reveals it only when selected,
+   which suits a checklist but not a command menu -- here every item has one. */
+.track-menu .popover-item .icon { opacity: 1; }
+.menu-head { margin: 2px 8px 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--muted); font: 700 10px var(--font-heading); letter-spacing: .08em; text-transform: uppercase; }
+.menu-separator { height: 1px; margin: 4px 6px; background: var(--line); }
+.popover-item.is-danger, .popover-item.is-danger .icon { color: var(--danger); }
+.popover-item.is-danger:hover { background: var(--accent-wash); }
+
+/* Fullscreen drops the rounded inset frame so no desktop shows through. */
+body.is-fullscreen .app-shell { width: 100vw; height: 100vh; margin: 0; border-radius: 0; border-color: transparent; }
+body.is-fullscreen .player-bar { left: 246px; right: 0; bottom: 0; border-radius: 0; }
+
+/* Real cover art. The gradient tile stays underneath as the placeholder, so a
+   track or chat with no photo looks intentional rather than broken, and the
+   image only becomes visible once it has actually decoded. */
+.channel-art, .track-art, .chat-art, .playlist-art { position: relative; overflow: hidden; }
+.channel-art img, .track-art img, .chat-art img, .mini-art img, .now-art img {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+  opacity: 0; transition: opacity .28s var(--ease);
+}
+.channel-art img.ready, .track-art img.ready, .chat-art img.ready, .mini-art img.ready, .now-art img.ready { opacity: 1; }
+/* The now-playing art has decorative sun and mountain layers; a real cover must
+   sit above them, and the label above that so it stays readable. */
+.now-art img { z-index: 1; }
+.now-art .art-label { position: relative; z-index: 2; }
+
+/* Head actions: pages that carry two or three controls instead of one. */
+.head-actions { display: flex; align-items: center; gap: 8px; }
+.section-heading.tight { margin-top: 26px; }
+.search-box.slim { width: 210px; height: 34px; }
+.soft-button.danger { border-color: color-mix(in srgb, var(--danger) 42%, transparent); color: var(--danger); }
+.soft-button.danger:hover { background: rgba(184,88,88,.10); }
+.soft-button.danger.is-armed { background: var(--danger); border-color: var(--danger); color: #fff; }
+
+/* Chat picker. One request lists the chats; only the ticked ones get scanned. */
+.card-note.privacy { margin-top: -4px; padding-left: 10px; border-left: 2px solid var(--accent); color: var(--muted); }
+.picker-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0 14px; }
+/* The two cloud actions used to sit in .generic-head, where the 390px right pad
+   that keeps the head clear of the floating topbar squeezed them against the h1.
+   Here they share a row with the slim search, at the same height as it. */
+.picker-filters { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 250px; }
+/* display:flex would otherwise defeat the hidden attribute outright. */
+.picker-filters[hidden] { display: none; }
+.picker-count { color: var(--muted); font: 600 11px var(--font-heading); }
+.picker-filters .link-button { margin-left: auto; font-size: 11px; }
+.chat-picker { display: grid; gap: 6px; max-height: 340px; overflow-y: auto; padding: 8px; border: 1px solid var(--line); border-radius: 17px; background: var(--panel-soft); }
+.chat-row { display: flex; align-items: center; gap: 11px; width: 100%; min-height: 52px; padding: 7px 11px; border: 1px solid transparent; border-radius: 13px; background: transparent; text-align: left; transition: background .18s ease, border-color .18s ease; }
+.chat-row:hover { background: rgba(106,155,204,.075); }
+.chat-row.checked { border-color: rgba(74,123,168,.34); background: var(--accent-wash); }
+.chat-art { width: 34px; height: 34px; display: grid; flex: none; place-items: center; border-radius: 11px; background: #7a97ab; color: #fff; }
+.chat-art .icon { width: 18px; height: 18px; }
+.chat-copy { min-width: 0; display: grid; gap: 3px; }
+.chat-copy strong { overflow: hidden; font: 600 12px var(--font-heading); letter-spacing: -.02em; white-space: nowrap; text-overflow: ellipsis; }
+.chat-copy span { overflow: hidden; color: var(--muted); font-size: 10px; white-space: nowrap; text-overflow: ellipsis; }
+
+/* Shared tick box for chat rows and library multi-select. */
+.pick-box { width: 21px; height: 21px; display: grid; flex: none; place-items: center; padding: 0; border: 1.5px solid var(--line-strong); border-radius: 7px; background: var(--surface); color: var(--on-accent); transition: background-color .16s var(--ease), border-color .16s var(--ease), color .16s var(--ease), box-shadow .16s var(--ease), transform .16s var(--ease), opacity .16s var(--ease); }
+.pick-box .icon { width: 13px; height: 13px; stroke-width: 3.4; opacity: 0; transition: opacity .16s ease; }
+.pick-box.checked { border-color: var(--accent); background: var(--accent); }
+.pick-box.checked .icon { opacity: 1; }
+.chat-row:hover .pick-box { border-color: var(--accent); }
+
+/* Library multi-select. The extra grid column only exists while picking. */
+.filter-pill.select-pill { display: inline-flex; align-items: center; gap: 6px; }
+.filter-pill.select-pill .icon { width: 14px; height: 14px; }
+.filter-pill.select-pill.is-active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+/* Pushed to the far end of the row so it reads as a modifier of the filters
+   rather than a fourth filter competing with them. */
+.filter-pill.sort-pill { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
+.filter-pill.sort-pill .icon { width: 14px; height: 14px; }
+.filter-pill.sort-pill:hover { border-color: var(--line-strong); color: var(--ink); }
+.selection-bar { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; padding: 10px 14px; border: 1px solid rgba(74,123,168,.26); border-radius: 13px; background: var(--accent-wash); }
+.selection-spacer { flex: 1; }
+.selection-bar .link-button { font-size: 11px; }
+.track-row.is-selectable { grid-template-columns: 21px 42px minmax(150px,1fr) minmax(120px,.8fr) 54px 72px; }
+.track-row.is-picked { background: rgba(74,123,168,.11); }
+
+/* Playlists. */
+.playlist-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 13px; }
+.playlist-card { min-width: 0; padding: 15px; border: 1px solid var(--line); border-radius: 17px; background: var(--panel); cursor: pointer; transition: transform .23s var(--ease), border-color .23s var(--ease), box-shadow .23s var(--ease); }
+.playlist-card:hover { border-color: rgba(106,155,204,.36); box-shadow: 0 12px 24px rgba(20,20,19,.07); transform: translateY(-3px); }
+.playlist-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.playlist-card.is-active { border-color: var(--accent); background: var(--accent-wash); }
+.playlist-art { width: 42px; height: 42px; display: grid; place-items: center; margin-bottom: 13px; border-radius: 13px; background: var(--accent); color: var(--on-accent); }
+.playlist-art .icon { width: 22px; height: 22px; }
+.playlist-card h3 { margin: 0; overflow: hidden; font-size: 14px; font-weight: 600; letter-spacing: -.035em; white-space: nowrap; text-overflow: ellipsis; }
+.playlist-card p { margin: 5px 0 0; color: var(--muted); font-size: 11px; }
+.rename-input { width: min(100%, 280px); height: 32px; padding: 0 10px; border: 1px solid var(--accent); border-radius: 9px; background: var(--surface); color: var(--ink); font: 600 15px var(--font-heading); }
+.rename-input:focus { box-shadow: 0 0 0 3px rgba(74,123,168,.12); }
+
+/* Add-to-playlist modal. */
+.modal.slim { width: min(360px, calc(100vw - 40px)); padding: 24px; }
+.playlist-pick-list { display: grid; gap: 4px; max-height: 220px; overflow-y: auto; margin: 0 0 4px; }
+.playlist-pick-list .popover-item .icon { opacity: 1; }
+.playlist-pick-list .popover-item small { margin-left: auto; color: var(--muted); font: 700 10px var(--font-heading); }
+
+/* The toast icon used to be green whatever it said, which read as success even
+   on failures. */
+.toast.is-error .toast-icon { background: var(--danger); }
+.toast.is-success .toast-icon { background: var(--green); }
+
+/* The narrow-width track-row rules below are plain .track-row, so they lose to
+   .track-row.is-selectable on specificity. Each breakpoint therefore needs its
+   own selectable variant, or ticking a box would break the row layout on a
+   small window. */
+@media (max-width: 900px) {
+  .playlist-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .track-row.is-selectable { grid-template-columns: 21px 38px minmax(120px,1fr) 50px 55px; }
+  .chat-picker { max-height: 300px; }
+}
+@media (max-width: 620px) {
+  .playlist-grid { grid-template-columns: 1fr; }
+  .track-row.is-selectable { grid-template-columns: 21px 37px minmax(90px,1fr) 29px; }
+  .head-actions { flex-wrap: wrap; }
+  .picker-bar { flex-wrap: wrap; }
+  .search-box.slim { width: 100%; }
+  .selection-bar { flex-wrap: wrap; }
+}
+
+@media (max-width: 1150px) { .sidebar { width: 210px; }.player-bar { left: 220px; grid-template-columns: minmax(0,1fr) minmax(0,1.2fr) auto; gap: 14px; }.volume { display: none; }.page-wrap { padding-left: 29px; padding-right: 29px; }.orbit-art { right: -56px; opacity: .78; }.hero-copy { width: 60%; }.topbar { right: 20px; }.search-box { width: 220px; } }
+@media (max-width: 900px) { .sidebar { width: 74px; padding: 28px 10px 16px; }.brand-row { padding: 0 8px 37px; }.brand-row > div:last-child, .sidebar-label, .nav-item > span:not(.nav-icon):not(.nav-dot), .cloud-card, .sidebar-footer > span { display: none; }.nav-item { justify-content: center; padding: 0; }.nav-icon { font-size: 18px; }.player-bar { left: 84px; grid-template-columns: 1fr 1fr; padding: 10px 17px; }.player-controls { gap: 7px; }.player-track > .heart-button { display: none; }.hero-grid { grid-template-columns: 1fr; }.now-card { min-height: 240px; }.now-art { height: 122px; }.channel-grid { grid-template-columns: repeat(2, 1fr); }.track-row { grid-template-columns: 38px minmax(130px,1fr) 50px 55px; }.track-channel { display: none; }.welcome-row, .generic-head { padding-right: 0; }.topbar { top: 15px; right: 15px; }.search-box { width: 180px; } }
+@media (max-width: 620px) { .app-shell { width: 100vw; height: 100vh; margin: 0; border-radius: 0; }.sidebar { display: none; }.player-bar { bottom: 0; left: 0; right: 0; border-radius: 18px 18px 0 0; }.topbar { right: 12px; }.topbar .avatar-button, .topbar .icon-button, .window-controls.integrated button:not(.window-close) { display: none; }.search-box { width: 175px; }.page-wrap { padding: 25px 17px 112px; }.welcome-row h1, .generic-head h1 { font-size: 29px; }.welcome-row { padding-top: 55px; }.hero-card { min-height: 295px; padding: 24px; }.hero-copy { width: 72%; }.orbit-art { right: -145px; opacity: .45; }.channel-grid, .channel-grid.large { grid-template-columns: 1fr; }.generic-head { align-items: start; flex-direction: column; gap: 17px; padding-top: 55px; }.track-row { grid-template-columns: 37px minmax(110px,1fr) 29px; gap: 9px; }.track-time { display: none; }.track-row-actions .heart-button { display: none; }.player-bar { height: 88px; grid-template-columns: 1fr; }.player-center { position: absolute; top: 20px; right: 13px; width: 152px; }.player-progress { display: none; }.player-controls { justify-content: end; gap: 4px; }.player-controls .control-button:not(.play-main):nth-child(2), .player-controls .control-button:not(.play-main):nth-child(4) { display: none; }.player-track { max-width: 54%; }.player-title { font-size: 12px; } }
+
+body:not(.light-mode) { --paper: #171b1f; --paper-soft: #1f252b; --paper-deep: #2a3238; --surface: #1b2126; --line: rgba(233,240,246,.10); --line-strong: rgba(233,240,246,.17); --ink: #e9f0f6; --muted: #c2ccd6; --muted-light: #93a0ac; --accent: #7aa9d6; --accent-dark: #9cc2e4; --accent-wash: rgba(122,169,214,.18); --blue: #7aa9d6; --blue-wash: rgba(122,169,214,.16); --green-wash: rgba(93,140,134,.16); --panel: rgba(33,41,49,.80); --panel-strong: rgba(26,32,38,.94); --panel-soft: rgba(33,41,49,.55); --cloud-bg: rgba(38,56,53,.80); --cloud-line: rgba(93,140,134,.30); --shell-border: rgba(233,240,246,.10); --scroll-thumb: rgba(233,240,246,.22); --danger: #e08a8a; --on-accent: #10161b; }
+/* The panels added for chat picking and playlists need the same treatment, or
+   they stay paper-white against a dark shell. */
+body:not(.light-mode) .pick-box { background: var(--panel-strong); }
+body:not(.light-mode) .pick-box.checked { background: var(--accent); }
+body:not(.light-mode) .rename-input { background: var(--panel-strong); }
+
+/* --- Settings ------------------------------------------------------------- */
+.settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; align-items: start; }
+.setting-card { padding: 22px 24px; border: 1px solid var(--line); border-radius: 20px; background: var(--panel); box-shadow: 0 10px 26px rgba(106,155,204,.07); }
+.setting-card h2 { display: flex; align-items: center; gap: 9px; margin: 0 0 4px; font: 700 15px var(--font-heading); }
+.setting-card h2 .icon { width: 19px; height: 19px; color: var(--accent); }
+.card-note { margin: 0 0 6px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.setting-row { display: flex; align-items: center; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+.setting-row:last-child { border-bottom: 0; padding-bottom: 2px; }
+/* A slider needs the full width, so its label sits above it rather than beside. */
+.setting-row.stacked { display: block; }
+.setting-copy { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.setting-name { font: 600 13px var(--font-heading); }
+.setting-name b { margin-left: 6px; padding: 1px 7px; border-radius: 7px; background: var(--accent-wash); color: var(--accent-dark); font: 700 11px var(--font-heading); }
+.setting-hint { color: var(--muted); font-size: 11.5px; line-height: 1.5; }
+.setting-row.stacked input[type="range"] { width: 100%; margin-top: 12px; }
+
+.choice-row { display: flex; flex: none; gap: 7px; }
+.choice { padding: 7px 13px; border: 1px solid var(--line-strong); border-radius: 11px; background: var(--paper-soft); color: var(--muted); font: 600 12px var(--font-heading); transition: background-color .18s var(--ease), border-color .18s var(--ease), color .18s var(--ease), box-shadow .18s var(--ease), transform .18s var(--ease), opacity .18s var(--ease); }
+.choice:hover { color: var(--ink); }
+.choice.active { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
+/* The ring on the selected swatch is drawn outside the circle, so the row needs
+   a little more breathing room than the plain button row. */
+.choice-row.swatches { gap: 10px; padding-right: 2px; }
+.swatch { width: 27px; height: 27px; border: 2px solid transparent; border-radius: 50%; background: var(--swatch); box-shadow: inset 0 0 0 1px rgba(0,0,0,.08); transition: background-color .18s var(--ease), border-color .18s var(--ease), color .18s var(--ease), box-shadow .18s var(--ease), transform .18s var(--ease), opacity .18s var(--ease); }
+.swatch:hover { transform: scale(1.08); }
+/* The ring sits outside the circle so the colour itself is never covered. */
+.swatch.active { border-color: var(--surface); box-shadow: 0 0 0 2px var(--accent); }
+/* The first swatch means "use whatever accent the preset ships with", so it has
+   no fixed colour of its own -- it previews the accent currently in effect. */
+.swatch-auto { background: linear-gradient(135deg, var(--paper-deep) 0 46%, var(--accent) 46% 100%); }
+
+/* Preset cards. Every colour here comes from a variable, so the chooser itself
+   is retinted by whichever preset is active rather than needing dark overrides. */
+.preset-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; margin-top: 12px; }
+.preset-card { display: grid; gap: 2px; padding: 11px 12px; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--paper-soft); text-align: left; transition: background-color .18s var(--ease), border-color .18s var(--ease), box-shadow .18s var(--ease), transform .18s var(--ease); }
+.preset-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+.preset-card.active { border-color: var(--accent); background: var(--accent-wash); box-shadow: inset 0 0 0 1px var(--accent); }
+/* Three stops read as paper / accent / secondary, which is enough to tell the
+   presets apart at a glance without rendering a full mock of each one. */
+.preset-swatch { display: block; height: 19px; margin-bottom: 6px; border-radius: 7px; background: linear-gradient(100deg, var(--p1) 0 44%, var(--p2) 44% 74%, var(--p3) 74% 100%); box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); }
+.preset-name { color: var(--ink); font: 600 12px var(--font-heading); }
+.preset-desc { color: var(--muted); font-size: 10.5px; line-height: 1.4; }
+@media (max-width: 620px) { .preset-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+.cache-stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 11px; margin: 12px 0 4px; }
+.cache-stat { display: flex; flex-direction: column; gap: 2px; padding: 13px 15px; border-radius: 15px; background: var(--blue-wash); }
+.cache-value { font: 700 19px var(--font-heading); }
+.cache-label { color: var(--muted); font: 600 11px var(--font-heading); }
+.cache-sub { color: var(--muted-light); font-size: 11px; }
+.setting-actions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 15px; }
+.setting-path { margin: 11px 0 0; color: var(--muted-light); font-size: 11px; word-break: break-all; }
+
+/* --- Theme presets --------------------------------------------------------
+   A preset is a full tonal set (surfaces, text, lines, panel tint), not just an
+   accent, which is what lets the app leave the cool-blue family entirely.
+   Specificity: body[data-preset] (0,1,1) outranks :root (0,1,0) for light, and
+   body:not(.light-mode)[data-preset] (0,3,1) outranks the dark block (0,2,1).
+   Cool Blue is :root plus the dark block above, so it needs no entry here.
+
+   Contrast and Cyberpunk are dark-only -- a black-and-neon palette has no
+   sensible light variant -- so they only declare the dark selector and the
+   renderer forces dark whenever one of them is active. */
+
+/* Warm Amber: cream paper and amber accent, the warm counterpart to the default. */
+body[data-preset="amber"] {
+  --ink: #26201a; --paper: #faf4ea; --paper-soft: #f3e9d9; --paper-deep: #e8d9c2; --surface: #fffdf8;
+  --line: rgba(38,32,26,.10); --line-strong: rgba(38,32,26,.18); --muted: #6b5b48; --muted-light: #9a8872;
+  --accent: #c07a2c; --accent-dark: #9a5d17; --accent-wash: #f7e6cf;
+  --blue: #d19a54; --blue-wash: #f9eeda; --green: #7d8c4f; --green-wash: #eef0e2;
+  --panel: rgba(255,252,245,.74); --panel-strong: rgba(255,252,245,.95); --panel-soft: rgba(255,252,245,.58);
+  --cloud-bg: rgba(245,232,210,.90); --cloud-line: rgba(192,122,44,.22);
+  --shell-border: rgba(255,255,255,.80); --scroll-thumb: #d8c6ab; --danger: #b0503f;
+}
+body:not(.light-mode)[data-preset="amber"] {
+  --ink: #f3e7d6; --paper: #1d1813; --paper-soft: #261f18; --paper-deep: #332a20; --surface: #221c16;
+  --line: rgba(243,231,214,.10); --line-strong: rgba(243,231,214,.18); --muted: #d3c3ac; --muted-light: #a2917b;
+  --accent: #e0a25c; --accent-dark: #f0bd82; --accent-wash: rgba(224,162,92,.18);
+  --blue: #e0a25c; --blue-wash: rgba(224,162,92,.15); --green: #a8b46e; --green-wash: rgba(168,180,110,.16);
+  --panel: rgba(42,34,26,.80); --panel-strong: rgba(35,28,21,.94); --panel-soft: rgba(42,34,26,.55);
+  --cloud-bg: rgba(56,45,32,.85); --cloud-line: rgba(224,162,92,.22);
+  --shell-border: rgba(243,231,214,.10); --scroll-thumb: rgba(243,231,214,.22); --danger: #e08a8a; --on-accent: #1d1813;
+}
+
+/* Forest: deep green over a warm-neutral paper, aimed at long reading sessions. */
+body[data-preset="forest"] {
+  --ink: #17231b; --paper: #f0f4ee; --paper-soft: #e2ebdf; --paper-deep: #cfdccb; --surface: #f9fbf8;
+  --line: rgba(23,35,27,.10); --line-strong: rgba(23,35,27,.18); --muted: #4d6151; --muted-light: #7d8f80;
+  --accent: #3f7d54; --accent-dark: #2b6040; --accent-wash: #deeee3;
+  --blue: #6b9c78; --blue-wash: #e8f1ea; --green: #7a8b4a; --green-wash: #ecefdf;
+  --panel: rgba(250,252,248,.74); --panel-strong: rgba(250,252,248,.95); --panel-soft: rgba(250,252,248,.58);
+  --cloud-bg: rgba(226,237,222,.90); --cloud-line: rgba(63,125,84,.22);
+  --shell-border: rgba(255,255,255,.80); --scroll-thumb: #c2d2bf; --danger: #a95048;
+}
+body:not(.light-mode)[data-preset="forest"] {
+  --ink: #e6efe6; --paper: #131a15; --paper-soft: #1b241d; --paper-deep: #263028; --surface: #172019;
+  --line: rgba(230,239,230,.10); --line-strong: rgba(230,239,230,.18); --muted: #b9c9bc; --muted-light: #8a9c8d;
+  --accent: #6cb183; --accent-dark: #8fcaa1; --accent-wash: rgba(108,177,131,.18);
+  --blue: #6cb183; --blue-wash: rgba(108,177,131,.15); --green: #a3b46a; --green-wash: rgba(163,180,106,.16);
+  --panel: rgba(28,38,31,.80); --panel-strong: rgba(22,30,24,.94); --panel-soft: rgba(28,38,31,.55);
+  --cloud-bg: rgba(34,50,38,.85); --cloud-line: rgba(108,177,131,.22);
+  --shell-border: rgba(230,239,230,.10); --scroll-thumb: rgba(230,239,230,.22); --danger: #e08a8a; --on-accent: #131a15;
+}
+
+/* Mono: neutral greys only. --on-accent flips to near-black in dark mode
+   because the accent there is a light grey that a white glyph disappears into. */
+body[data-preset="mono"] {
+  --ink: #1a1a1a; --paper: #f4f4f4; --paper-soft: #eaeaea; --paper-deep: #dadada; --surface: #fcfcfc;
+  --line: rgba(26,26,26,.11); --line-strong: rgba(26,26,26,.19); --muted: #565656; --muted-light: #8a8a8a;
+  --accent: #4a4a4a; --accent-dark: #262626; --accent-wash: #e6e6e6;
+  --blue: #7a7a7a; --blue-wash: #ededed; --green: #6a6a6a; --green-wash: #ececec;
+  --panel: rgba(255,255,255,.74); --panel-strong: rgba(255,255,255,.95); --panel-soft: rgba(255,255,255,.58);
+  --cloud-bg: rgba(234,234,234,.90); --cloud-line: rgba(26,26,26,.14);
+  --shell-border: rgba(255,255,255,.85); --scroll-thumb: #c8c8c8; --danger: #8c4a4a;
+}
+body:not(.light-mode)[data-preset="mono"] {
+  --ink: #ededed; --paper: #171717; --paper-soft: #1f1f1f; --paper-deep: #2b2b2b; --surface: #1b1b1b;
+  --line: rgba(237,237,237,.11); --line-strong: rgba(237,237,237,.19); --muted: #c4c4c4; --muted-light: #909090;
+  --accent: #b4b4b4; --accent-dark: #dcdcdc; --accent-wash: rgba(180,180,180,.16);
+  --blue: #b4b4b4; --blue-wash: rgba(180,180,180,.13); --green: #9a9a9a; --green-wash: rgba(154,154,154,.14);
+  --panel: rgba(38,38,38,.80); --panel-strong: rgba(30,30,30,.95); --panel-soft: rgba(38,38,38,.55);
+  --cloud-bg: rgba(45,45,45,.85); --cloud-line: rgba(237,237,237,.14);
+  --shell-border: rgba(237,237,237,.10); --scroll-thumb: rgba(237,237,237,.22); --danger: #d98a8a; --on-accent: #171717;
+}
+
+/* High Contrast: pure black surfaces, one bright blue, yellow for status.
+   Lines are far more opaque than elsewhere so every edge stays visible. */
+body:not(.light-mode)[data-preset="contrast"] {
+  --ink: #ffffff; --paper: #000000; --paper-soft: #0d0d0d; --paper-deep: #1f1f1f; --surface: #000000;
+  --line: rgba(255,255,255,.30); --line-strong: rgba(255,255,255,.52); --muted: #ececec; --muted-light: #c4c4c4;
+  --accent: #4db8ff; --accent-dark: #8fd4ff; --accent-wash: rgba(77,184,255,.24);
+  --blue: #4db8ff; --blue-wash: rgba(77,184,255,.20); --green: #ffd60a; --green-wash: rgba(255,214,10,.20);
+  --panel: rgba(9,9,9,.95); --panel-strong: rgba(0,0,0,.98); --panel-soft: rgba(9,9,9,.90);
+  --cloud-bg: rgba(20,20,20,.95); --cloud-line: rgba(255,214,10,.45);
+  --shell-border: rgba(255,255,255,.52); --scroll-thumb: rgba(255,255,255,.45); --danger: #ff6b6b; --on-accent: #000000;
+}
+/* Translucent glass and soft glows are the first thing to fail in bright light,
+   so this preset drops the decoration rather than dimming it. */
+body[data-preset="contrast"] .ambient { display: none; }
+body[data-preset="contrast"] .app-shell::before { display: none; }
+body[data-preset="contrast"] button:focus-visible, body[data-preset="contrast"] input:focus-visible { outline-width: 3px; }
+
+/* Cyberpunk: violet surfaces with a neon cyan accent and a violet secondary. */
+body:not(.light-mode)[data-preset="cyber"] {
+  --ink: #eae4ff; --paper: #120d1f; --paper-soft: #1a1230; --paper-deep: #251a42; --surface: #160f26;
+  --line: rgba(234,228,255,.13); --line-strong: rgba(234,228,255,.24); --muted: #b9aee0; --muted-light: #8a7cb8;
+  --accent: #22e0d6; --accent-dark: #6bf0e8; --accent-wash: rgba(34,224,214,.16);
+  --blue: #b06cff; --blue-wash: rgba(176,108,255,.16); --green: #22e0d6; --green-wash: rgba(34,224,214,.14);
+  --panel: rgba(29,20,50,.80); --panel-strong: rgba(22,15,38,.95); --panel-soft: rgba(29,20,50,.55);
+  --cloud-bg: rgba(40,25,68,.85); --cloud-line: rgba(34,224,214,.30);
+  --shell-border: rgba(176,108,255,.32); --scroll-thumb: rgba(176,108,255,.40); --danger: #ff7a9c; --on-accent: #0a0716;
+}
+/* The one place this preset adds rather than retints: a neon rim on the accent
+   fills, which is what makes it read as neon instead of merely purple. */
+body[data-preset="cyber"] .control-button.play-main { box-shadow: 0 0 18px rgba(34,224,214,.45); }
+body[data-preset="cyber"] .round-play { box-shadow: 0 0 22px rgba(34,224,214,.40); }
+body[data-preset="cyber"] .ambient { opacity: .30; }
+
+/* Accent palettes. These override the :root and dark-mode values, so the
+   dark-mode variant needs the extra :not(.light-mode) to outrank the plain one. */
+body[data-accent="teal"] { --accent: #3f8c85; --accent-dark: #2c6f69; --accent-wash: #e3f4f0; --blue: #5fa39c; --blue-wash: #eaf4f2; }
+body[data-accent="indigo"] { --accent: #6572b8; --accent-dark: #4a579b; --accent-wash: #e7e9f7; --blue: #808cc9; --blue-wash: #eceef8; }
+body[data-accent="plum"] { --accent: #8f6aa8; --accent-dark: #74508c; --accent-wash: #f0e8f5; --blue: #a684bb; --blue-wash: #f4edf8; }
+body:not(.light-mode)[data-accent="teal"] { --accent: #6fbdb4; --accent-dark: #93d3cb; --accent-wash: rgba(111,189,180,.18); --blue: #6fbdb4; --blue-wash: rgba(111,189,180,.16); }
+body:not(.light-mode)[data-accent="indigo"] { --accent: #949fdd; --accent-dark: #b3bcec; --accent-wash: rgba(148,159,221,.18); --blue: #949fdd; --blue-wash: rgba(148,159,221,.16); }
+body:not(.light-mode)[data-accent="plum"] { --accent: #bb95d0; --accent-dark: #d3b4e2; --accent-wash: rgba(187,149,208,.18); --blue: #bb95d0; --blue-wash: rgba(187,149,208,.16); }
+
+/* Reduce motion keeps layout identical and only collapses the timings, so
+   nothing shifts position when it is switched on. */
+body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after {
+  transition-duration: .01ms !important;
+  animation-duration: .01ms !important;
+  animation-iteration-count: 1 !important;
+}
+
+body:not(.light-mode) .choice { background: var(--panel-strong); }
+
+@media (max-width: 1150px) { .settings-grid { grid-template-columns: 1fr; } }
+@media (max-width: 620px) {
+  .setting-row { align-items: start; flex-direction: column; gap: 11px; }
+  .choice-row { flex-wrap: wrap; }
+}
