@@ -6,6 +6,16 @@
 
 TGPlayer is a Telegram-first desktop music player inspired by PixelPlayer's Material You palette, expressive motion and floating mini-player. It uses a light glass surface by default with a cool-blue Material You palette, a frameless rounded window with custom controls, and a Telegram paper-plane mark.
 
+### Screenshots
+
+| Home | Login confirmation |
+| --- | --- |
+| ![TGPlayer home screen](assets/screenshots/6a9a1e266e2d4d0b.png) | ![Telegram login confirmation](assets/screenshots/43f9a71f19c80e04.png) |
+
+| Settings | Music library |
+| --- | --- |
+| ![TGPlayer settings](assets/screenshots/9cd93fd919521b6b.png) | ![TGPlayer music library](assets/screenshots/f63319ea1a5c81c8.png) |
+
 ### Run
 
 ```powershell
@@ -48,6 +58,16 @@ A bot is a content source, not a sign-in method: add a bot to a group or channel
 ## 中文
 
 TGPlayer 是一款以 Telegram 为核心的桌面音乐播放器,借鉴了 PixelPlayer 的 Material You 配色、动效表现和悬浮迷你播放器。默认亮色玻璃质感界面,配冷蓝 Material You 色系,无边框圆角窗口 + 自定义控件,以及 Telegram 纸飞机标记。
+
+### 界面示例
+
+| 首页 | 登录确认 |
+| --- | --- |
+| ![TGPlayer 首页](assets/screenshots/6a9a1e266e2d4d0b.png) | ![Telegram 登录确认](assets/screenshots/43f9a71f19c80e04.png) |
+
+| 设置页 | 音乐库 |
+| --- | --- |
+| ![TGPlayer 设置页](assets/screenshots/9cd93fd919521b6b.png) | ![TGPlayer 音乐库](assets/screenshots/f63319ea1a5c81c8.png) |
 
 ### 运行
 
