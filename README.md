@@ -21,17 +21,25 @@ The first install downloads Electron. Network access is only needed for that ins
 
 ## Telegram connection
 
-The default connection mode is **Bot Token**, so you do not need to apply for an API ID or API hash. Create a bot with `@BotFather`, add it to a channel as an administrator, paste its token into TGPlayer, then add that channel from the Channels page. The Bot API can read posts that the bot can access (including new audio posts); it cannot browse a user's private chat history.
-
-For a full personal-account library, the connection sheet also keeps the same state flow as PixelPlayer:
+TGPlayer signs in with your personal Telegram account. The connection sheet follows the same state flow as PixelPlayer:
 
 `API credentials → phone number → verification code → optional two-step password → ready`
 
-Create an API ID and API hash at [my.telegram.org](https://my.telegram.org). After authorization, the Electron main process keeps an OS-protected StringSession in the app's user-data directory and exposes channel search and audio download through the isolated preload bridge. Telegram audio messages are mapped to the same useful fields as PixelPlayer (`chat/channel`, `messageId`, title, artist, duration) and can be downloaded to the local app cache for playback.
+Create an API ID and API hash at [my.telegram.org](https://my.telegram.org). After authorization, the Electron main process keeps an OS-protected StringSession in the app's user-data directory and exposes channel search and audio download through the isolated preload bridge. From the Channels page you pick which chats to scan, so TGPlayer only indexes audio from the chats you select rather than your whole account. Telegram audio messages are mapped to the same useful fields as PixelPlayer (`chat/channel`, `messageId`, title, artist, duration) and can be downloaded to the local app cache for playback.
 
 Playback first asks the bridge for a loopback `127.0.0.1` stream URL. The small local HTTP server pulls Telegram media in chunks with GramJS `iterDownload`, so the renderer's audio element can begin playback before a full file is cached; a cached download is used as a fallback.
 
-If the bot is not connected, **Explore demo library** keeps the UI usable with the built-in sample library.
+A bot is a content source, not a sign-in method: add a bot to a group or channel to post audio there, then sign in with your own account and select that chat on the Channels page to listen. Playing full-length tracks needs the personal-account login above, because the Bot API only exposes a short prefix of each file and cannot seek.
+
+## 中文说明
+
+TGPlayer 用你的**个人 Telegram 账户**登录,不是用 bot token。登录流程:
+
+`API ID/hash → 手机号 → 验证码 →(可选)两步验证密码 → 完成`
+
+在 [my.telegram.org](https://my.telegram.org) 申请 API ID 和 API hash。授权后,登录凭据(StringSession)经系统加密保存在本地用户数据目录,通过隔离的 preload bridge 提供频道搜索和音频下载。在「频道」页里**自己选**要扫描的聊天,TGPlayer 只索引选中聊天里的音频,不会读取你的整个账户。
+
+想听机器人发的歌:把机器人加进某个群或频道让它发音频,然后**用你自己的账户登录**,在「频道」页选中那个群即可。这里机器人只是**内容来源**,不是登录方式——完整播放(可拖动进度、读取完整时长)必须走上面的个人账户登录,因为 Bot API 只能拿到每个文件的前一小段、也不支持跳转。
 
 ## PixelPlayer ideas carried over
 
