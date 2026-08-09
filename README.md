@@ -15,7 +15,7 @@ To create the Windows installer:
 npm run dist
 ```
 
-The NSIS installer is written to `dist-final/TGPlayer-Setup-0.1.0.exe`. Runtime session data and audio cache are kept on `D:\TGPlayerData`.
+The NSIS installer is written to `dist-final/TGPlayer-Setup-0.1.0.exe`. Runtime session data and audio cache live in the app's per-user data directory (`%APPDATA%\tgplayer` on Windows). An existing `D:\TGPlayerData` folder from an earlier build is still used when it already holds data, so upgrades keep you signed in.
 
 The first install downloads Electron. Network access is only needed for that install and for the optional GramJS Telegram bridge.
 
