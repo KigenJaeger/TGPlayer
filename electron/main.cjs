@@ -1540,7 +1540,9 @@ ipcMain.on('player:state', (_event, next) => {
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1480, height: 940, minWidth: 1100, minHeight: 720,
-    frame: false, transparent: true, roundedCorners: true, hasShadow: true, backgroundColor: '#00000000',
+    // Keep the native resize border enabled. The renderer now reaches the
+    // window edge, so all four rounded corners remain usable resize targets.
+    frame: false, resizable: true, transparent: true, roundedCorners: true, hasShadow: true, backgroundColor: '#00000000',
     icon: APP_ICON,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: false },
   });
