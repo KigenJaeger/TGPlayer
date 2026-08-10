@@ -581,6 +581,8 @@ class TrackCache {
     this.binPath = path.join(cacheDir(), `${safeName(info.key)}.bin`);
     this.metaPath = path.join(cacheDir(), `${safeName(info.key)}.json`);
     this.fd = null;
+    this.activeReads = 0;
+    this.lastUsed = Date.now();
     this.saveTimer = null;
     this.keepAliveTimer = null;
     this.load();
@@ -755,6 +757,8 @@ class TrackCache {
   // network keeps working through backpressure. Anything fetched but never
   // yielded is already written to disk, so it is not wasted work.
   async *read(start, end, isAborted) {
+    this.activeReads += 1;
+    this.lastUsed = Date.now();
     const firstPart = Math.floor(start / PART_SIZE);
     const lastPart = Math.min(this.partCount - 1, Math.floor(end / PART_SIZE));
     const concurrency = parallelParts();
@@ -797,6 +801,8 @@ class TrackCache {
       // air still land in the disk cache, so they benefit the next read.
       finished = true;
       window.clear();
+      this.activeReads = Math.max(0, this.activeReads - 1);
+      this.lastUsed = Date.now();
     }
   }
 
@@ -809,12 +815,26 @@ class TrackCache {
 }
 
 const trackCaches = new Map();
+const MAX_TRACK_CACHES = 3;
 function getTrackCache(info) {
   const existing = trackCaches.get(info.key);
-  if (existing && existing.info.size === info.size) return existing;
-  if (existing) existing.close();
+  if (existing && existing.info.size === info.size) {
+    existing.lastUsed = Date.now();
+    return existing;
+  }
+  if (existing) { existing.close(); trackCaches.delete(info.key); }
   const cache = new TrackCache(info);
   trackCaches.set(info.key, cache);
+  // Keep only a small recent working set. A cache with an active HTTP reader is
+  // left alone; it will be eligible on the next track switch.
+  while (trackCaches.size > MAX_TRACK_CACHES) {
+    const candidate = [...trackCaches.values()]
+      .filter(item => item !== cache && item.activeReads === 0)
+      .sort((a, b) => a.lastUsed - b.lastUsed)[0];
+    if (!candidate) break;
+    candidate.close();
+    trackCaches.delete(candidate.info.key);
+  }
   pruneCache();
   return cache;
 }
@@ -949,9 +969,22 @@ async function streamMtprotoRange(request, response, chatId, messageId) {
   const cache = getTrackCache(info);
   for await (const piece of cache.read(start, end, () => aborted)) {
     if (aborted) break;
-    if (!response.write(piece)) await new Promise(resolve => response.once('drain', resolve));
+    if (!response.write(piece)) {
+      await new Promise(resolve => {
+        if (aborted || response.destroyed) return resolve();
+        const done = () => { cleanup(); resolve(); };
+        const cleanup = () => {
+          response.off('drain', done);
+          response.off('close', done);
+          response.off('error', done);
+        };
+        response.once('drain', done);
+        response.once('close', done);
+        response.once('error', done);
+      });
+    }
   }
-  response.end();
+  if (!response.destroyed && !response.writableEnded) response.end();
 }
 
 // --- Artwork ----------------------------------------------------------------
@@ -1544,7 +1577,11 @@ function createWindow() {
     // window edge, so all four rounded corners remain usable resize targets.
     frame: false, resizable: true, transparent: true, roundedCorners: true, hasShadow: true, backgroundColor: '#00000000',
     icon: APP_ICON,
-    webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: false },
+    // A hidden tray window still owns the audio element and receives tray IPC.
+    // Keep Chromium's normal background throttling on so it does not continue
+    // painting animations and high-frequency timers while there is no window to
+    // show; media playback itself is not paused by this setting.
+    webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: false, backgroundThrottling: true },
   });
   mainWindow.setMenuBarVisibility(false);
   mainWindow.loadFile(path.join(__dirname, '..', 'src', 'index.html'));
@@ -1554,6 +1591,14 @@ function createWindow() {
   // first so this handler lets the real close through.
   mainWindow.on('close', (event) => {
     if (isQuitting || !settings.minimizeToTray) return;
+    event.preventDefault();
+    mainWindow.hide();
+  });
+  // Treat the title-bar minimize control exactly like closing to the tray.
+  // Keeping one hidden renderer preserves the current audio element, queue, and
+  // tray commands while removing the visible window's rendering work.
+  mainWindow.on('minimize', (event) => {
+    if (!settings.minimizeToTray) return;
     event.preventDefault();
     mainWindow.hide();
   });
