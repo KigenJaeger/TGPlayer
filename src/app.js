@@ -722,7 +722,11 @@ async function playTrack(index) {
   updatePlayer();
 }
 
-function updateProgress() {
+function updateProgress(force = false) {
+  // The audio clock keeps advancing in the tray, but repainting six progress
+  // fields while the BrowserWindow is hidden has no visible result. Keep the
+  // state current and repaint once the user restores the window instead.
+  if (document.hidden && !force) return;
   const duration = currentDuration();
   const percent = duration ? Math.min(100, (state.elapsed / duration) * 100) : 0;
   $('#seekBar').value = percent;
@@ -1432,6 +1436,9 @@ function bindAudio() {
   audio.addEventListener('ended', () => {
     if (state.repeat === 'one') { audio.currentTime = 0; audio.play().catch(() => {}); return; }
     advance();
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) updateProgress(true);
   });
 }
 

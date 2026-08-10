@@ -64,6 +64,16 @@ contextBridge.exposeInMainWorld('tgPlayer', {
     },
     publishState: (state) => ipcRenderer.send('player:state', state),
   },
+  trayMenu: {
+    command: (command) => ipcRenderer.send('tray:command', String(command || 'dismiss')),
+    ready: () => ipcRenderer.send('tray:ready'),
+    onState: (handler) => {
+      if (typeof handler !== 'function') return () => {};
+      const listener = (_event, state) => handler(state || {});
+      ipcRenderer.on('tray:state', listener);
+      return () => ipcRenderer.removeListener('tray:state', listener);
+    },
+  },
   window: {
     minimize: () => ipcRenderer.send('window:minimize'),
     toggleMaximize: () => ipcRenderer.send('window:toggle-maximize'),

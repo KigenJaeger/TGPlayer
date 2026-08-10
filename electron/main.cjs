@@ -1,7 +1,12 @@
-const { app, BrowserWindow, ipcMain, shell, safeStorage, nativeTheme, Tray, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, safeStorage, nativeTheme, Tray, nativeImage, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
+
+// Once the player is in the tray there is no visual work worth keeping a GPU
+// compositor alive for. Audio decoding and the localhost media stream continue
+// in their dedicated processes.
+app.disableHardwareAcceleration();
 
 let mainWindow;
 let telegram = null;
@@ -1512,6 +1517,7 @@ const APP_ICON = path.join(__dirname, '..', 'assets', 'icon.png');
 // playback directly. The renderer pushes its state up on every change and the
 // tray sends commands down, which keeps one source of truth for playback.
 let tray = null;
+let trayPopup = null;
 let isQuitting = false;
 let playback = { playing: false, title: '' };
 
@@ -1527,21 +1533,47 @@ function sendPlayerCommand(command) {
   mainWindow.webContents.send('player:command', command);
 }
 
-// Rebuilt rather than mutated because an Electron Menu is immutable once built,
-// so a label that changes with playback state needs a new template each time.
+function closeTrayPopup() {
+  if (trayPopup && !trayPopup.isDestroyed()) trayPopup.hide();
+}
+
+function trayPopupState() {
+  if (!trayPopup || trayPopup.isDestroyed() || trayPopup.webContents.isLoading()) return;
+  trayPopup.webContents.send('tray:state', playback);
+}
+
+function showTrayPopup() {
+  if (!trayPopup || trayPopup.isDestroyed()) {
+    trayPopup = new BrowserWindow({
+      width: 260, height: 270, show: false, frame: false, transparent: true,
+      resizable: false, movable: false, minimizable: false, maximizable: false,
+      skipTaskbar: true, alwaysOnTop: true, hasShadow: false,
+      backgroundColor: '#00000000', roundedCorners: true,
+      webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: false, backgroundThrottling: true },
+    });
+    trayPopup.setMenuBarVisibility(false);
+    trayPopup.loadFile(path.join(__dirname, '..', 'src', 'tray-menu.html'));
+    trayPopup.on('blur', closeTrayPopup);
+    trayPopup.on('closed', () => { trayPopup = null; });
+    trayPopup.webContents.on('did-finish-load', trayPopupState);
+  }
+  const point = screen.getCursorScreenPoint();
+  const area = screen.getDisplayNearestPoint(point).workArea;
+  const width = 260;
+  const height = 270;
+  const x = Math.max(area.x + 6, Math.min(point.x - width + 18, area.x + area.width - width - 6));
+  const y = Math.max(area.y + 6, Math.min(point.y - height - 8, area.y + area.height - height - 6));
+  trayPopup.setPosition(Math.round(x), Math.round(y), false);
+  trayPopup.show();
+  trayPopup.focus();
+  trayPopupState();
+}
+
 function renderTray() {
   if (!tray) return;
-  const menu = Menu.buildFromTemplate([
-    { label: playback.title ? `正在播放：${playback.title}` : '未在播放', enabled: false },
-    { type: 'separator' },
-    { label: '显示主窗口', click: showWindow },
-    { label: playback.playing ? '暂停' : '播放', click: () => sendPlayerCommand('toggle') },
-    { label: '下一首', click: () => sendPlayerCommand('next') },
-    { label: '上一首', click: () => sendPlayerCommand('previous') },
-    { type: 'separator' },
-    { label: '退出 TGPlayer', click: () => { isQuitting = true; app.quit(); } },
-  ]);
-  tray.setContextMenu(menu);
+  // The native Windows context menu cannot be rounded or themed. The custom
+  // popup below keeps the same commands while matching TGPlayer's visual system.
+  tray.setContextMenu(null);
   // A tray tooltip is capped near 127 characters on Windows; a long track title
   // would otherwise be dropped rather than truncated.
   const tip = playback.title ? `TGPlayer · ${playback.title}` : 'TGPlayer';
@@ -1554,8 +1586,9 @@ function createTray() {
   // renders it at full size and it is clipped to an unrecognisable corner.
   const image = nativeImage.createFromPath(APP_ICON).resize({ width: 16, height: 16 });
   tray = new Tray(image);
-  tray.on('click', showWindow);
-  tray.on('double-click', showWindow);
+  tray.on('click', () => { closeTrayPopup(); showWindow(); });
+  tray.on('double-click', () => { closeTrayPopup(); showWindow(); });
+  tray.on('right-click', showTrayPopup);
   renderTray();
 }
 
@@ -1568,6 +1601,15 @@ ipcMain.on('player:state', (_event, next) => {
   if (playing === playback.playing && title === playback.title) return;
   playback = { playing, title };
   renderTray();
+  trayPopupState();
+});
+
+ipcMain.on('tray:ready', trayPopupState);
+ipcMain.on('tray:command', (_event, command) => {
+  closeTrayPopup();
+  if (command === 'show') return showWindow();
+  if (command === 'toggle' || command === 'next' || command === 'previous') return sendPlayerCommand(command);
+  if (command === 'quit') { isQuitting = true; return app.quit(); }
 });
 
 function createWindow() {
