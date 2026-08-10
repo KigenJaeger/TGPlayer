@@ -67,7 +67,7 @@
         </div>
         <div class="sidebar-label">功能导航</div>
         <nav class="nav-list" aria-label="主导航">
-          <button class="nav-item active" data-page="home"><span class="nav-icon"><svg class="icon"><use href="#i-home"/></svg></span><span>首页</span><span class="nav-dot"></span></button>
+          <button class="nav-item active" data-page="home" aria-current="page"><span class="nav-icon"><svg class="icon"><use href="#i-home"/></svg></span><span>首页</span><span class="nav-dot"></span></button>
           <button class="nav-item" data-page="channels"><span class="nav-icon"><svg class="icon"><use href="#i-broadcast"/></svg></span><span>Telegram 频道</span><span class="nav-dot"></span></button>
           <button class="nav-item" data-page="library"><span class="nav-icon"><svg class="icon"><use href="#i-library"/></svg></span><span>音乐库</span><span class="nav-count" id="navLibraryCount">0</span><span class="nav-dot"></span></button>
           <button class="nav-item" data-page="playlists"><span class="nav-icon"><svg class="icon"><use href="#i-disc"/></svg></span><span>播放列表</span><span class="nav-count" id="navPlaylistCount">0</span><span class="nav-dot"></span></button>
@@ -263,7 +263,7 @@
     <div class="modal-backdrop" id="modalBackdrop" aria-hidden="true"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><button class="modal-close" id="modalClose" aria-label="关闭"><svg class="icon"><use href="#i-close"/></svg></button><div class="modal-brand"><div class="brand-mark small"><svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="22" fill="#229ED9"/><path d="m38.4 10.4-29.5 11c-1.8.7-1.8 3.3.1 4l7.8 2.9 3 9.7c.5 1.6 2.6 2 3.6.7l5.2-6.7 8.4 6.1c1.5 1.1 3.6.3 4-1.5l4.9-23.9c.4-1.8-1.8-3-3.5-2.3Z" fill="#fff"/><path d="m17 28.3 18-12.2-12.8 14.5-.4 4.6-2.4-7.5-2.4.6Z" fill="#8fd5ff"/></svg></div><span id="modalTitle">连接 Telegram</span></div><div id="authSteps"></div><div class="modal-footnote">你的凭据和登录会话只保存在本机，仅用于访问 Telegram。</div></section></div>
     <div class="modal-backdrop" id="playlistBackdrop" aria-hidden="true"><section class="modal slim" role="dialog" aria-modal="true" aria-labelledby="playlistPickTitle"><button class="modal-close" id="playlistPickClose" aria-label="关闭"><svg class="icon"><use href="#i-close"/></svg></button><div class="modal-brand"><span id="playlistPickTitle">添加到播放列表</span></div><p class="auth-subtitle" id="playlistPickCount">已选 0 首</p><div class="playlist-pick-list" id="playlistPickList"></div><div class="auth-field"><label>新建播放列表</label><input id="playlistPickName" placeholder="给播放列表起个名字"></div><div class="auth-actions"><button class="soft-button" id="playlistPickCancel">取消</button><button class="primary-button" id="playlistPickCreate"><svg class="icon"><use href="#i-plus"/></svg> 新建并添加</button></div></section></div>
     <div class="track-menu" id="trackMenu" role="menu" aria-hidden="true"></div>
-    <div class="toast" id="toast"><span class="toast-icon" id="toastIcon"><svg class="icon"><use href="#i-check" id="toastGlyph"/></svg></span><span id="toastText">已添加到收藏</span></div>
+    <div class="toast" id="toast" role="status" aria-live="polite"><span class="toast-icon" id="toastIcon"><svg class="icon"><use href="#i-check" id="toastGlyph"/></svg></span><span id="toastText">已添加到收藏</span></div>
     <audio id="audioElement" preload="metadata"></audio>
     <script src="./app.js"></script>
   </body>

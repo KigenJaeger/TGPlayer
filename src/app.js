@@ -1073,7 +1073,11 @@ function bindCacheClear(button, kind, label) {
 
 function setPage(page) {
   state.page = page;
-  $$('.nav-item').forEach(item => item.classList.toggle('active', item.dataset.page === page));
+  $$('.nav-item').forEach(item => {
+    const active = item.dataset.page === page;
+    item.classList.toggle('active', active);
+    item.toggleAttribute('aria-current', active);
+  });
   $$('.page').forEach(item => item.classList.toggle('active', item.dataset.pageContent === page));
   $('#pageCrumb').textContent = ({ home: 'Home', channels: 'Telegram 聊天', library: 'Library', playlists: 'Playlists', queue: 'Queue', favorites: 'Favorites', settings: 'Settings' })[page] || 'Home';
   if (page === 'favorites') renderFavorites();
