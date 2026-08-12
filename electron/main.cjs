@@ -6,6 +6,8 @@ const http = require('http');
 // Once the player is in the tray there is no visual work worth keeping a GPU
 // compositor alive for. Audio decoding and the localhost media stream continue
 // in their dedicated processes.
+app.commandLine.appendSwitch('disable-gpu');
+app.commandLine.appendSwitch('disable-software-rasterizer');
 app.disableHardwareAcceleration();
 
 let mainWindow;
@@ -1469,7 +1471,11 @@ function settingsPayload() {
 }
 
 ipcMain.handle('settings:get', () => settingsPayload());
-ipcMain.handle('settings:set', (_event, patch) => { saveSettings(patch); return settingsPayload(); });
+ipcMain.handle('settings:set', (_event, patch) => {
+  saveSettings(patch);
+  trayPopupState();
+  return settingsPayload();
+});
 
 ipcMain.handle('settings:cache-stats', () => {
   const media = cacheEntries();
@@ -1500,6 +1506,7 @@ ipcMain.handle('settings:open-data-folder', async () => {
 // A "follow the system" theme has to react when the OS flips, not only when the
 // settings page is opened.
 nativeTheme.on('updated', () => {
+  trayPopupState();
   if (!mainWindow || mainWindow.isDestroyed()) return;
   mainWindow.webContents.send('settings:system-theme', nativeTheme.shouldUseDarkColors);
 });
@@ -1519,7 +1526,37 @@ const APP_ICON = path.join(__dirname, '..', 'assets', 'icon.png');
 let tray = null;
 let trayPopup = null;
 let isQuitting = false;
-let playback = { playing: false, title: '' };
+function trayUsesDarkTheme() {
+  return DARK_ONLY_PRESETS.includes(settings.preset)
+    || settings.theme === 'dark'
+    || (settings.theme === 'system' && nativeTheme.shouldUseDarkColors);
+}
+
+let playback = { playing: false, title: '', dark: trayUsesDarkTheme() };
+const playbackStatePath = () => path.join(app.getPath('userData'), 'playback-state.json');
+
+function readPlaybackState() {
+  try {
+    const saved = JSON.parse(fs.readFileSync(playbackStatePath(), 'utf8'));
+    if (!saved || typeof saved !== 'object' || typeof saved.trackId !== 'string') return {};
+    return {
+      trackId: saved.trackId,
+      elapsed: Math.max(0, Number(saved.elapsed) || 0),
+      playing: Boolean(saved.playing),
+    };
+  } catch { return {}; }
+}
+
+let resumeState = readPlaybackState();
+function savePlaybackState(next) {
+  if (!next || typeof next.trackId !== 'string' || !next.trackId) return;
+  resumeState = {
+    trackId: next.trackId,
+    elapsed: Math.max(0, Number(next.elapsed) || 0),
+    playing: Boolean(next.playing),
+  };
+  try { fs.writeFileSync(playbackStatePath(), JSON.stringify(resumeState), 'utf8'); } catch {}
+}
 
 function showWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) return createWindow();
@@ -1534,18 +1571,25 @@ function sendPlayerCommand(command) {
 }
 
 function closeTrayPopup() {
-  if (trayPopup && !trayPopup.isDestroyed()) trayPopup.hide();
+  // The popup is a short-lived interaction surface. Destroying it on dismiss
+  // releases its renderer and DOM caches instead of leaving a second Chromium
+  // window resident while the app is only playing audio in the tray.
+  if (trayPopup && !trayPopup.isDestroyed()) trayPopup.close();
 }
 
 function trayPopupState() {
   if (!trayPopup || trayPopup.isDestroyed() || trayPopup.webContents.isLoading()) return;
-  trayPopup.webContents.send('tray:state', playback);
+  trayPopup.webContents.send('tray:state', trayState());
+}
+
+function trayState() {
+  return { ...playback, dark: trayUsesDarkTheme() };
 }
 
 function showTrayPopup() {
   if (!trayPopup || trayPopup.isDestroyed()) {
     trayPopup = new BrowserWindow({
-      width: 260, height: 270, show: false, frame: false, transparent: true,
+      width: 292, height: 318, show: false, frame: false, transparent: true,
       resizable: false, movable: false, minimizable: false, maximizable: false,
       skipTaskbar: true, alwaysOnTop: true, hasShadow: false,
       backgroundColor: '#00000000', roundedCorners: true,
@@ -1559,8 +1603,8 @@ function showTrayPopup() {
   }
   const point = screen.getCursorScreenPoint();
   const area = screen.getDisplayNearestPoint(point).workArea;
-  const width = 260;
-  const height = 270;
+  const width = 292;
+  const height = 318;
   const x = Math.max(area.x + 6, Math.min(point.x - width + 18, area.x + area.width - width - 6));
   const y = Math.max(area.y + 6, Math.min(point.y - height - 8, area.y + area.height - height - 6));
   trayPopup.setPosition(Math.round(x), Math.round(y), false);
@@ -1599,11 +1643,17 @@ ipcMain.on('player:state', (_event, next) => {
   // more often than the menu actually changes. Rebuilding only on a real change
   // keeps this off the per-second path.
   if (playing === playback.playing && title === playback.title) return;
-  playback = { playing, title };
+  playback = { playing, title, dark: trayUsesDarkTheme() };
   renderTray();
   trayPopupState();
 });
 
+ipcMain.handle('player:resume-state', () => resumeState);
+ipcMain.on('player:save-resume-state', (_event, next) => {
+  savePlaybackState(next);
+});
+
+ipcMain.handle('tray:state', () => trayState());
 ipcMain.on('tray:ready', trayPopupState);
 ipcMain.on('tray:command', (_event, command) => {
   closeTrayPopup();

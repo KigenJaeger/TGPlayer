@@ -63,9 +63,12 @@ contextBridge.exposeInMainWorld('tgPlayer', {
       return () => ipcRenderer.removeListener('player:command', listener);
     },
     publishState: (state) => ipcRenderer.send('player:state', state),
+    resumeState: () => ipcRenderer.invoke('player:resume-state'),
+    saveResumeState: (state) => ipcRenderer.send('player:save-resume-state', state),
   },
   trayMenu: {
     command: (command) => ipcRenderer.send('tray:command', String(command || 'dismiss')),
+    state: () => ipcRenderer.invoke('tray:state'),
     ready: () => ipcRenderer.send('tray:ready'),
     onState: (handler) => {
       if (typeof handler !== 'function') return () => {};

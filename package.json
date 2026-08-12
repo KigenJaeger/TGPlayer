@@ -1,6 +1,6 @@
 {
   "name": "tgplayer",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "A Telegram-first desktop music player inspired by PixelPlayer",
   "main": "electron/main.cjs",
   "scripts": {
@@ -92,6 +92,7 @@
     },
     "nsis": {
       "oneClick": false,
+      "include": "build/installer.nsh",
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,

@@ -5,44 +5,62 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>TGPlayer</title>
   <style>
-    :root { color-scheme: dark; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; }
+    :root { color-scheme: light; font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif; }
     * { box-sizing: border-box; }
     html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; }
-    body { padding: 8px; }
-    .menu { width: 244px; padding: 9px; border: 1px solid rgba(155, 190, 222, .12); border-radius: 13px; background: linear-gradient(150deg, #182534, #111b27); box-shadow: 0 14px 32px rgba(0, 0, 0, .42), 0 2px 8px rgba(0, 0, 0, .28); }
-    .status { min-height: 29px; padding: 4px 12px 8px; overflow: hidden; color: #9fb2c4; font-size: 11px; line-height: 1.35; white-space: nowrap; text-overflow: ellipsis; }
-    .group { margin-top: 3px; padding-top: 7px; border-top: 1px solid rgba(180, 205, 226, .12); }
-    button { width: 100%; min-height: 37px; padding: 0 12px; border: 0; border-radius: 8px; background: transparent; color: #eef5fb; font: 500 13px "Segoe UI", "Microsoft YaHei", sans-serif; text-align: left; cursor: pointer; transition: background-color .14s ease, color .14s ease, transform .1s ease; }
-    button:hover, button:focus-visible { outline: 0; background: rgba(132, 174, 211, .18); color: #fff; }
-    button:active { background: rgba(132, 174, 211, .28); transform: scale(.985); }
-    .danger { color: #f4b6b6; }
-    .danger:hover, .danger:focus-visible { background: rgba(199, 88, 98, .2); color: #ffd9d9; }
+    body { padding: 8px; color: #17232d; }
+    .menu { width: 276px; padding: 8px; border: 1px solid rgba(54, 71, 86, .09); border-radius: 24px; background: #f8faff; box-shadow: 0 3px 6px rgba(42, 57, 72, .12), 0 12px 28px rgba(42, 57, 72, .18); transform-origin: bottom right; animation: menu-in .2s cubic-bezier(.2, .8, .2, 1); }
+    .now-playing { display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 8px 10px 11px; }
+    .art { width: 42px; height: 42px; display: grid; place-items: center; flex: none; overflow: hidden; border-radius: 15px; background: linear-gradient(145deg, #d5e9ff, #e6e5ff); color: #2c77bd; box-shadow: inset 0 1px rgba(255,255,255,.7); }
+    .art svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .art.playing svg { animation: pulse 1.7s cubic-bezier(.35, 0, .4, 1) infinite; }
+    .copy { min-width: 0; flex: 1; }
+    .eyebrow { color: #627483; font-size: 10px; font-weight: 700; letter-spacing: .09em; }
+    .status { margin-top: 3px; overflow: hidden; color: #25333e; font-size: 12px; font-weight: 600; line-height: 1.25; white-space: nowrap; text-overflow: ellipsis; }
+    .group { margin-top: 2px; padding-top: 5px; border-top: 1px solid #e4e9ee; }
+    button { width: 100%; min-height: 44px; display: flex; align-items: center; gap: 14px; padding: 0 12px; border: 0; border-radius: 14px; background: transparent; color: inherit; font: 600 13px "Segoe UI", "Microsoft YaHei UI", sans-serif; letter-spacing: .01em; text-align: left; cursor: pointer; transition: background-color .16s ease, color .16s ease, transform .16s cubic-bezier(.2, .8, .2, 1); }
+    button svg { width: 20px; height: 20px; flex: none; fill: none; stroke: #536775; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: stroke .16s ease, transform .18s cubic-bezier(.2, .8, .2, 1); }
+    button:hover, button:focus-visible { outline: 0; background: #dceeff; color: #155f9f; } button:hover svg, button:focus-visible svg { stroke: currentColor; transform: scale(1.06); }
+    button:active { background: #cbe5fb; transform: scale(.985); }
+    .danger { color: #b3261e; } .danger svg { stroke: currentColor; } .danger:hover, .danger:focus-visible { background: #ffdad6; color: #8c1d18; }
+    body.dark { color-scheme: dark; color: #e9f1f8; } body.dark .menu { border-color: rgba(211, 228, 242, .12); background: #1c262f; box-shadow: 0 3px 7px rgba(0,0,0,.26), 0 12px 28px rgba(0,0,0,.4); } body.dark .art { background: linear-gradient(145deg, #214966, #38345f); color: #a8d4ff; box-shadow: none; } body.dark .eyebrow { color: #b4c3cf; } body.dark .status { color: #edf5fb; } body.dark .group { border-color: rgba(221, 235, 246, .11); } body.dark button svg { stroke: #bacbd7; } body.dark button:hover, body.dark button:focus-visible { background: #29465c; color: #a8d4ff; } body.dark button:active { background: #35566e; } body.dark .danger:hover, body.dark .danger:focus-visible { background: #5c383a; color: #ffb4ab; }
+    @keyframes menu-in { from { opacity: 0; transform: scale(.96) translateY(5px); } to { opacity: 1; transform: none; } } @keyframes pulse { 50% { transform: scale(1.13); opacity: .7; } }
+    @media (prefers-reduced-motion: reduce) { .menu, .art.playing svg { animation: none; } button, button svg { transition: none; } }
   </style>
 </head>
 <body>
   <div class="menu" role="menu" aria-label="TGPlayer 托盘菜单">
-    <div class="status" id="status">TGPlayer</div>
-    <button type="button" data-command="show" role="menuitem">显示主窗口</button>
+    <div class="now-playing"><div class="art" id="pulse"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V6l10-2v12"/><path d="M9 9l10-2"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg></div><div class="copy"><div class="eyebrow" id="eyebrow">TGPLAYER</div><div class="status" id="status">TGPlayer</div></div></div>
+    <button type="button" data-command="show" role="menuitem"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.5 12 5l8 6.5V20a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z"/></svg>显示主窗口</button>
     <div class="group">
-      <button type="button" id="toggle" data-command="toggle" role="menuitem">继续播放</button>
-      <button type="button" data-command="next" role="menuitem">下一首</button>
-      <button type="button" data-command="previous" role="menuitem">上一首</button>
+      <button type="button" id="toggle" data-command="toggle" role="menuitem"><svg viewBox="0 0 24 24" aria-hidden="true"><path id="toggleIcon" d="M8 5v14l11-7z"/></svg><span id="toggleLabel">继续播放</span></button>
+      <button type="button" data-command="next" role="menuitem"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 5 9 7-9 7zM18 5v14"/></svg>下一首</button>
+      <button type="button" data-command="previous" role="menuitem"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m18 5-9 7 9 7zM6 5v14"/></svg>上一首</button>
     </div>
     <div class="group">
-      <button type="button" class="danger" data-command="quit" role="menuitem">退出 TGPlayer</button>
+      <button type="button" class="danger" data-command="quit" role="menuitem"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v9"/><path d="M7.05 5.93A8 8 0 1 0 16.95 5.93"/></svg>退出 TGPlayer</button>
     </div>
   </div>
   <script>
     const api = window.tgPlayer?.trayMenu;
     const status = document.getElementById('status');
     const toggle = document.getElementById('toggle');
+    const pulse = document.getElementById('pulse');
+    const eyebrow = document.getElementById('eyebrow');
+    const toggleIcon = document.getElementById('toggleIcon');
+    const toggleLabel = document.getElementById('toggleLabel');
     function applyState(next = {}) {
       const title = String(next.title || '').trim();
-      status.textContent = title ? `${next.playing ? '正在播放' : '已暂停'}  ·  ${title}` : 'TGPlayer  ·  当前没有播放';
-      toggle.textContent = next.playing ? '暂停播放' : '继续播放';
+      document.body.classList.toggle('dark', Boolean(next.dark));
+      pulse.classList.toggle('playing', Boolean(next.playing));
+      toggleIcon.setAttribute('d', next.playing ? 'M8 5v14M16 5v14' : 'M8 5v14l11-7z');
+      eyebrow.textContent = title ? (next.playing ? '正在播放' : '已暂停') : 'TGPLAYER';
+      status.textContent = title || '当前没有播放';
+      toggleLabel.textContent = next.playing ? '暂停播放' : '继续播放';
     }
     document.querySelectorAll('[data-command]').forEach(button => button.addEventListener('click', () => api?.command(button.dataset.command)));
     document.addEventListener('keydown', event => { if (event.key === 'Escape') api?.command('dismiss'); });
+    api?.state?.().then(applyState).catch(() => {});
     api?.onState(applyState);
     api?.ready();
   </script>

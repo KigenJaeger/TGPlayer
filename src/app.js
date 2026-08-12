@@ -40,6 +40,7 @@ const state = {
   // Mirrors settings.json in the main process. Kept here so a control can render
   // its current value without an IPC round trip on every repaint.
   settings: null, systemDark: false,
+  resumeState: null, resumeSavedAt: 0, playbackRestored: false,
 };
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -697,10 +698,11 @@ function nextIndex(step) {
   return (state.current + step + tracks.length) % tracks.length;
 }
 
-async function playTrack(index) {
+async function playTrack(index, options = {}) {
   const track = tracks[index];
   if (!track) return showToast(NO_TRACKS);
-  state.current = index; state.elapsed = 0;
+  const resumeAt = Math.max(0, Number(options.resumeAt) || 0);
+  state.current = index; state.elapsed = resumeAt;
   // Recorded here so the now-playing panel survives a library rebuild mid-playback.
   state.playingId = track.trackId; state.playingTrack = track;
   renderCollections(); updatePlayer();
@@ -712,7 +714,21 @@ async function playTrack(index) {
   // The main process walked every frame header, so this is the real length.
   if (result.duration) { track.duration = result.duration; track.durationText = formatTime(result.duration); track.measured = true; renderCollections(); }
   audio.src = result.url; applyVolume();
-  try { await audio.play(); }
+  if (resumeAt) {
+    await new Promise(resolve => {
+      let settled = false;
+      const finish = (restore) => {
+        if (settled) return;
+        settled = true;
+        if (restore) audio.currentTime = resumeAt;
+        resolve();
+      };
+      const restorePosition = () => finish(true);
+      audio.addEventListener('loadedmetadata', restorePosition, { once: true });
+      setTimeout(() => finish(false), 1500);
+    });
+  }
+  if (options.autoplay !== false) try { await audio.play(); }
   catch (error) {
     // AbortError just means a newer load superseded this one; only NotAllowedError
     // is an actual block. Reporting both as "blocked" was a misdiagnosis.
@@ -831,6 +847,29 @@ function publishPlaybackState() {
   });
 }
 
+function saveResumeState(force = false) {
+  const track = currentTrack();
+  if (!track || (!force && Date.now() - state.resumeSavedAt < 4000)) return;
+  state.resumeSavedAt = Date.now();
+  window.tgPlayer?.player?.saveResumeState?.({
+    trackId: track.trackId,
+    elapsed: state.elapsed,
+    playing: state.playing,
+  });
+}
+
+async function restorePlayback() {
+  if (state.playbackRestored || !state.connected) return;
+  state.playbackRestored = true;
+  const saved = await window.tgPlayer?.player?.resumeState?.();
+  if (!saved?.trackId) return;
+  const index = tracks.findIndex(track => track.trackId === saved.trackId);
+  if (index < 0) return;
+  // Reopen the most recent stream at its saved position. Electron permits this
+  // app-originated resume because it is restoring the user's previous session.
+  await playTrack(index, { resumeAt: saved.elapsed, autoplay: saved.playing });
+}
+
 function applyVolume() { const audio = $('#audioElement'); audio.volume = state.muted ? 0 : state.volume / 100; audio.muted = state.muted; }
 function updateVolumeIcon() {
   const silent = state.muted || state.volume === 0;
@@ -896,6 +935,7 @@ function applyAppearance() {
   document.body.dataset.preset = preset;
   document.body.dataset.accent = config.accent || 'blue';
   document.body.classList.toggle('reduce-motion', Boolean(config.reduceMotion));
+  publishPlaybackState();
 }
 
 async function loadSettings() {
@@ -1425,13 +1465,13 @@ function bindGlobal() {
 // what is actually playing the way a synthetic ticker did.
 function bindAudio() {
   const audio = $('#audioElement');
-  audio.addEventListener('timeupdate', () => { state.elapsed = audio.currentTime; updateProgress(); });
+  audio.addEventListener('timeupdate', () => { state.elapsed = audio.currentTime; updateProgress(); saveResumeState(); });
   audio.addEventListener('loadedmetadata', updateProgress);
   // Chromium refines duration as it reads further into the file; now that Range
   // works it can actually do that, so the readout has to follow.
   audio.addEventListener('durationchange', updateProgress);
-  audio.addEventListener('play', () => { state.playing = true; updatePlayer(); });
-  audio.addEventListener('pause', () => { state.playing = false; updatePlayer(); });
+  audio.addEventListener('play', () => { state.playing = true; updatePlayer(); saveResumeState(true); });
+  audio.addEventListener('pause', () => { state.playing = false; updatePlayer(); saveResumeState(true); });
   audio.addEventListener('error', () => { if (!audio.src) return; state.playing = false; updatePlayer(); showToast('Telegram 无法提供这个文件'); });
   audio.addEventListener('ended', () => {
     if (state.repeat === 'one') { audio.currentTime = 0; audio.play().catch(() => {}); return; }
@@ -1439,7 +1479,9 @@ function bindAudio() {
   });
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) updateProgress(true);
+    else saveResumeState(true);
   });
+  window.addEventListener('beforeunload', () => saveResumeState(true));
 }
 
 async function refreshStatus() {
@@ -1468,6 +1510,7 @@ async function boot() {
   await Promise.all([loadPlaylists(), state.connected ? loadArtBase() : Promise.resolve()]);
   const library = await bridge()?.library?.();
   adoptLibrary(library || {});
+  await restorePlayback();
   if (state.connected) syncLibrary(true);
 }
 
@@ -1480,6 +1523,7 @@ function bridge_onStatusChanged() {
       await loadArtBase();
       const library = await bridge()?.library?.();
       adoptLibrary(library || {});
+      await restorePlayback();
       syncLibrary(true);
     }
   });
