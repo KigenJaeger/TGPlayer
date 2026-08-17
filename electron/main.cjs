@@ -589,6 +589,8 @@ class TrackCache {
     this.metaPath = path.join(cacheDir(), `${safeName(info.key)}.json`);
     this.fd = null;
     this.activeReads = 0;
+    this.activeDownloads = 0;
+    this.downloadWaiters = [];
     this.lastUsed = Date.now();
     this.saveTimer = null;
     this.keepAliveTimer = null;
@@ -694,6 +696,19 @@ class TrackCache {
     this.scheduleSave();
   }
 
+  async withDownloadSlot(action) {
+    if (this.activeDownloads >= parallelParts()) {
+      await new Promise(resolve => this.downloadWaiters.push(resolve));
+    }
+    this.activeDownloads += 1;
+    try { return await action(); }
+    finally {
+      this.activeDownloads = Math.max(0, this.activeDownloads - 1);
+      const next = this.downloadWaiters.shift();
+      if (next) next();
+    }
+  }
+
   // One shared promise per part index. Chromium fires overlapping Range requests
   // constantly while seeking, and without this the same bytes would be pulled
   // several times over.
@@ -702,7 +717,10 @@ class TrackCache {
       try { return Promise.resolve(this.readPart(index)); } catch { this.have.delete(index); }
     }
     if (this.pending.has(index)) return this.pending.get(index);
-    const task = this.downloadPart(index).finally(() => this.pending.delete(index));
+    // All HTTP range readers share this cap. A seek may leave a handful of old
+    // requests in flight; without a per-cache limit, each new seek adds another
+    // full batch and competes with the current read head.
+    const task = this.withDownloadSlot(() => this.downloadPart(index)).finally(() => this.pending.delete(index));
     this.pending.set(index, task);
     return task;
   }
@@ -710,41 +728,36 @@ class TrackCache {
   async downloadPart(index, retried = false) {
     const { Api } = require('telegram');
     const bigInt = require('big-integer');
-    try {
-      // Only hand gramjs a dcId when the file really lives on another DC.
-      //
-      // This is the single biggest start-up cost that was being paid needlessly.
-      // In telegramBaseClient.js, getSender(dcId) returns
-      //   dcId ? this._borrowExportedSender(dcId) : Promise.resolve(this._sender)
-      // so passing a dcId ALWAYS leaves the already-connected main sender and takes
-      // the exported-sender path, which opens a fresh TCP connection through the
-      // proxy and -- when session.dcId !== dcId -- also pays auth.ExportAuthorization
-      // plus InvokeWithLayer(ImportAuthorization) before the first byte moves.
-      // Worse, EXPORTED_SENDER_RELEASE_TIMEOUT disconnects that sender after 30s
-      // idle, so the next track after a pause paid the whole setup again.
-      //
-      // When the document is on our own DC the main sender can serve it directly,
-      // and MTProto multiplexes, so the parallel parts still go out together.
-      const result = await withTelegram(client => client.invoke(new Api.upload.GetFile({
-        location: this.info.location,
-        offset: bigInt(index * PART_SIZE),
-        limit: PART_SIZE,
-      }), this.senderDc()));
-      const bytes = result?.bytes || Buffer.alloc(0);
-      if (bytes.length) this.writePart(index, bytes);
-      return bytes;
-    } catch (error) {
-      const message = String(error?.errorMessage || error?.message || error);
-      // File references expire. Refetching the message mints a fresh one; every
-      // other error is real and belongs to the caller.
-      if (!retried && /FILE_REFERENCE|FILEREF/i.test(message)) {
-        const fresh = await getMediaInfo(this.info.chatId, this.info.messageId, true);
-        this.info.location = fresh.location;
-        this.info.dcId = fresh.dcId;
-        return this.downloadPart(index, true);
+    const isTransient = (error) => /(?:TIMEOUT|TIMED_OUT|ETIMEDOUT|ECONNRESET|EPIPE|ENETUNREACH|EHOSTUNREACH|RPC_CALL_FAIL|NETWORK|SOCKET|CONNECTION_NOT_INITED)/i.test(String(error?.errorMessage || error?.message || error));
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        // Only hand gramjs a dcId when the file really lives on another DC.
+        // Passing a dcId for the account's own DC would open an unnecessary
+        // exported sender and delay the first byte.
+        const result = await withTelegram(client => client.invoke(new Api.upload.GetFile({
+          location: this.info.location,
+          offset: bigInt(index * PART_SIZE),
+          limit: PART_SIZE,
+        }), this.senderDc()));
+        const bytes = result?.bytes || Buffer.alloc(0);
+        if (bytes.length) this.writePart(index, bytes);
+        return bytes;
+      } catch (error) {
+        const message = String(error?.errorMessage || error?.message || error);
+        // File references expire. Refetching the message mints a fresh one; every
+        // other permanent error belongs to the caller.
+        if (!retried && /FILE_REFERENCE|FILEREF/i.test(message)) {
+          const fresh = await getMediaInfo(this.info.chatId, this.info.messageId, true);
+          this.info.location = fresh.location;
+          this.info.dcId = fresh.dcId;
+          return this.downloadPart(index, true);
+        }
+        if (!isTransient(error) || attempt === 2) throw error;
+        const delay = 150 * (2 ** attempt) + Math.floor(Math.random() * 100);
+        await new Promise(resolve => setTimeout(resolve, delay));
       }
-      throw error;
     }
+    throw new Error('DOWNLOAD_FAILED');
   }
 
   // Yields the requested byte range in order while keeping the pipe full.
@@ -775,7 +788,10 @@ class TrackCache {
     let inFlight = 0;
     let finished = false;
     const topUp = () => {
-      if (finished) return;
+      // A seek closes the previous HTTP response. Requests already in flight
+      // can still finish and populate the cache, but the abandoned reader must
+      // not keep issuing fresh lookahead requests after that point.
+      if (finished || isAborted()) return;
       while (next <= lastPart && inFlight < concurrency && window.size < lookahead) {
         const index = next;
         next += 1;

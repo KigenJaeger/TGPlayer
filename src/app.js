@@ -21,10 +21,10 @@ const state = {
   favoriteIds: new Set(),
   shuffle: false, repeat: 'off', volume: 68, muted: false, sinkId: '',
   queue: [], libraryFilter: 'all', librarySort: 'recent', crossfade: true,
-  connected: false, authStep: 'credentials', phone: '', query: '', syncing: false, user: null,
+  connected: false, buffering: false, authStep: 'credentials', phone: '', query: '', syncing: false, user: null,
   // GramJS cannot see the system proxy, so the route is app-level config the
   // user can inspect and override. null until the main process reports it.
-  proxy: null, proxyEditing: false,
+  proxy: null,
   // Chat picking: chatList is what the account can see, picked is what the user
   // wants scanned. Scanning every dialog was slow and mostly unwanted.
   chatList: [], picked: new Set(), chatQuery: '', loadingChats: false,
@@ -40,7 +40,7 @@ const state = {
   // Mirrors settings.json in the main process. Kept here so a control can render
   // its current value without an IPC round trip on every repaint.
   settings: null, systemDark: false,
-  resumeState: null, resumeSavedAt: 0, playbackRestored: false,
+  resumeSavedAt: 0, playbackRestored: false,
 };
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -1465,13 +1465,39 @@ function bindGlobal() {
 // what is actually playing the way a synthetic ticker did.
 function bindAudio() {
   const audio = $('#audioElement');
+  let stallTimer = null;
+  let stallNoticeShown = false;
+  const clearBuffering = () => {
+    clearTimeout(stallTimer);
+    stallTimer = null;
+    stallNoticeShown = false;
+    if (!state.buffering) return;
+    state.buffering = false;
+    updatePlayer();
+  };
+  const markBuffering = () => {
+    if (audio.paused || !audio.src) return;
+    clearTimeout(stallTimer);
+    // waiting can fire briefly while Chromium switches ranges. Only surface a
+    // notice when the buffer is genuinely stalled, avoiding toast flicker.
+    stallTimer = setTimeout(() => {
+      if (audio.paused || audio.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) return;
+      state.buffering = true;
+      updatePlayer();
+      if (!stallNoticeShown) { stallNoticeShown = true; showToast('网络缓冲中…'); }
+    }, 700);
+  };
   audio.addEventListener('timeupdate', () => { state.elapsed = audio.currentTime; updateProgress(); saveResumeState(); });
   audio.addEventListener('loadedmetadata', updateProgress);
   // Chromium refines duration as it reads further into the file; now that Range
   // works it can actually do that, so the readout has to follow.
   audio.addEventListener('durationchange', updateProgress);
   audio.addEventListener('play', () => { state.playing = true; updatePlayer(); saveResumeState(true); });
-  audio.addEventListener('pause', () => { state.playing = false; updatePlayer(); saveResumeState(true); });
+  audio.addEventListener('playing', clearBuffering);
+  audio.addEventListener('canplay', clearBuffering);
+  audio.addEventListener('waiting', markBuffering);
+  audio.addEventListener('stalled', markBuffering);
+  audio.addEventListener('pause', () => { clearBuffering(); state.playing = false; updatePlayer(); saveResumeState(true); });
   audio.addEventListener('error', () => { if (!audio.src) return; state.playing = false; updatePlayer(); showToast('Telegram 无法提供这个文件'); });
   audio.addEventListener('ended', () => {
     if (state.repeat === 'one') { audio.currentTime = 0; audio.play().catch(() => {}); return; }
