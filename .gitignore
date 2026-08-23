@@ -10,3 +10,14 @@ dist/
 # machine-local and must never be committed.
 dist-final/
 .build-cache/
+
+# Local build output used while dist-final was locked by another process.
+dist-build/
+
+# Runtime diagnostics and dependency download caches -- machine-local only.
+runtime-logs/
+.electron-cache/
+.npm-cache/
+
+# Stray crash/log droppings that landed in the repo root as bare numbers.
+/[0-9]*

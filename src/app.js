@@ -41,6 +41,10 @@ const state = {
   // its current value without an IPC round trip on every repaint.
   settings: null, systemDark: false,
   resumeSavedAt: 0, playbackRestored: false,
+  // Favorites and the play queue are persisted by track id and read back once
+  // per launch. queueRestored gates writes so early boot renders cannot wipe
+  // the saved file before the restore has run.
+  savedResume: null, queueRestored: false,
 };
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -189,12 +193,29 @@ function queueMarkup() {
   return state.queue.map(index => (tracks[index] ? trackTemplate(tracks[index], index) : '')).join('');
 }
 
+// The queue repaint is also the write-through point: every path that mutates the
+// queue goes through here, so persistence rides along instead of being sprinkled
+// next to each mutation. Keyed by track id, same as playlists, so a resync that
+// reorders the library cannot scramble what comes next.
+function queueIdsSnapshot() {
+  return state.queue.map(index => tracks[index]?.trackId).filter(Boolean);
+}
+function renderQueue() {
+  $('#queueList').innerHTML = queueMarkup();
+  // Until the saved queue has been read back once at boot, persisting would
+  // overwrite the file with an empty list before the restore ever ran.
+  if (state.queueRestored) window.tgPlayer?.player?.saveQueue?.(queueIdsSnapshot());
+}
+function persistQueue() {
+  if (state.queueRestored) window.tgPlayer?.player?.saveQueue?.(queueIdsSnapshot());
+}
+
 function renderCollections() {
   $('#channelGrid').innerHTML = channels.length ? channels.slice(0, 3).map(channelTemplate).join('') : emptyRow('还没有聊天。先登录 Telegram，再点击同步。');
   $('#channelGridLarge').innerHTML = channels.length ? channels.map(channelTemplate).join('') : emptyRow('还没有聊天。先登录 Telegram，再点击同步。');
   $('#trackList').innerHTML = tracks.length ? tracks.slice(0, 6).map((track, index) => trackTemplate(track, index)).join('') : emptyRow(NO_TRACKS);
   $('#libraryList').innerHTML = libraryMarkup();
-  $('#queueList').innerHTML = queueMarkup();
+  renderQueue();
   $('#navLibraryCount').textContent = tracks.length;
   $('#libraryLede').textContent = tracks.length ? `已从 Telegram 收集 ${tracks.length} 首。` : '还没有收集到任何内容。';
   applySearchFilter();
@@ -412,7 +433,7 @@ function playActivePlaylist() {
   if (!indices.length) return showError('这个播放列表里的曲目都不在音乐库中。');
   // The playlist becomes the queue, and the first entry starts immediately.
   state.queue = indices.slice(1);
-  $('#queueList').innerHTML = queueMarkup();
+  renderQueue();
   playTrack(indices[0]);
 }
 
@@ -483,7 +504,7 @@ function queueSelectedTracks() {
   if (!indices.length) return showError('请先选择曲目。');
   const added = indices.filter(index => !state.queue.includes(index));
   state.queue.push(...added);
-  $('#queueList').innerHTML = queueMarkup();
+  renderQueue();
   applySearchFilter();
   setSelectMode(false);
   showToast(added.length ? `已加入队列 ${added.length} 首。` : '这些曲目已经在队列里了。', 'success');
@@ -561,7 +582,7 @@ async function runTrackAction(action) {
   if (action === 'play-next') {
     state.queue = state.queue.filter(item => item !== index);
     state.queue.unshift(index);
-    $('#queueList').innerHTML = queueMarkup();
+    renderQueue();
     applySearchFilter();
     return showToast(`下一首播放：${track.title}`, 'success');
   }
@@ -569,7 +590,7 @@ async function runTrackAction(action) {
   if (action === 'queue') {
     if (state.queue.includes(index)) return showToast('已经在队列里了。');
     state.queue.push(index);
-    $('#queueList').innerHTML = queueMarkup();
+    renderQueue();
     applySearchFilter();
     return showToast('已加入队列。', 'success');
   }
@@ -588,7 +609,7 @@ async function runTrackAction(action) {
     const at = state.queue.indexOf(index);
     if (at < 0) return;
     state.queue.splice(at, 1);
-    $('#queueList').innerHTML = queueMarkup();
+    renderQueue();
     applySearchFilter();
     return showToast('已从队列移除。', 'success');
   }
@@ -672,11 +693,15 @@ function takeFromQueue() {
   while (state.queue.length) {
     const index = state.queue.shift();
     if (tracks[index]) {
-      $('#queueList').innerHTML = queueMarkup();
+      renderQueue();
       applySearchFilter();
       return index;
     }
   }
+  // Every remaining entry pointed at a dropped track. The loop above only
+  // repaints when it finds a survivor, so the now-empty queue still needs to
+  // reach both the DOM and disk.
+  renderQueue();
   return null;
 }
 
@@ -870,6 +895,33 @@ async function restorePlayback() {
   await playTrack(index, { resumeAt: saved.elapsed, autoplay: saved.playing });
 }
 
+// Favorites and the saved queue are read back once per launch, before the
+// library is adopted: adoptLibrary re-resolves both through track ids, so the
+// sets must already be populated when it runs.
+async function loadSavedSessionData() {
+  try {
+    const [favoritesResult, resume] = await Promise.all([
+      window.tgPlayer?.favorites?.list?.(),
+      window.tgPlayer?.player?.resumeState?.(),
+    ]);
+    if (favoritesResult?.ok && Array.isArray(favoritesResult.ids)) {
+      state.favoriteIds = new Set(favoritesResult.ids.map(String));
+    }
+    state.savedResume = (resume && typeof resume === 'object') ? resume : null;
+  } catch {}
+}
+
+// Maps the persisted queue ids back onto library positions. Entries whose track
+// has left the library drop out, exactly like a resync would drop them.
+function restoreQueue() {
+  state.queueRestored = true;
+  const ids = state.savedResume?.queueIds;
+  if (!Array.isArray(ids) || !ids.length) { persistQueue(); return; }
+  const positions = new Map(tracks.map((track, index) => [track.trackId, index]));
+  state.queue = [...new Set(ids)].map(id => positions.get(id)).filter(index => index !== undefined);
+  renderQueue();
+}
+
 function applyVolume() { const audio = $('#audioElement'); audio.volume = state.muted ? 0 : state.volume / 100; audio.muted = state.muted; }
 function updateVolumeIcon() {
   const silent = state.muted || state.volume === 0;
@@ -878,7 +930,7 @@ function updateVolumeIcon() {
   $('#volumeBar').value = state.muted ? 0 : state.volume;
 }
 
-// Keyed by id so it also works for a track that has left the library: the heart in
+// Likes are keyed by id so it also works for a track that has left the library: the heart in
 // the player bar stays lit for whatever is playing, so it has to stay clickable too.
 function toggleFavoriteId(trackId) {
   if (!trackId) return;
@@ -888,6 +940,9 @@ function toggleFavoriteId(trackId) {
   } else {
     state.favoriteIds.add(trackId); if (index >= 0) state.favorites.add(index); showToast('已添加到收藏');
   }
+  // Written through immediately: favorites.json in the user data folder is the
+  // only copy, so deferring to exit would lose everything on a crash.
+  window.tgPlayer?.favorites?.save?.([...state.favoriteIds]);
   renderCollections(); renderFavorites(); updatePlayer();
 }
 
@@ -1262,6 +1317,12 @@ async function bindAuth() {
     state.connected = false; state.user = null; state.phone = '';
     state.current = -1; state.queue = []; state.favorites = new Set();
     state.playingId = null; state.playingTrack = null; state.favoriteIds = new Set();
+    // Signing out also clears the on-disk copies, or the next account would
+    // inherit this account's likes and queue. Dropping savedResume matters too:
+    // otherwise a reconnect would map the old account's queue onto the new one.
+    window.tgPlayer?.favorites?.save?.([]);
+    state.savedResume = null;
+    persistQueue();
     adoptLibrary({});
     updateConnectionCard();
     state.authStep = 'credentials'; authView();
@@ -1380,7 +1441,7 @@ function bindGlobal() {
 
   $('#playerHeart').addEventListener('click', () => toggleCurrentFavorite());
   $('#nowHeart').addEventListener('click', () => toggleCurrentFavorite());
-  $('#moreNow').addEventListener('click', () => { const index = state.current; if (index < 0) return showToast('未选择曲目'); if (!state.queue.includes(index)) { state.queue.push(index); $('#queueList').innerHTML = queueMarkup(); applySearchFilter(); showToast('已加入队列'); } else showToast('已经在队列里了'); });
+  $('#moreNow').addEventListener('click', () => { const index = state.current; if (index < 0) return showToast('未选择曲目'); if (!state.queue.includes(index)) { state.queue.push(index); renderQueue(); applySearchFilter(); showToast('已加入队列'); } else showToast('已经在队列里了'); });
   // Clamped to what the element will actually seek to, and guarded because
   // assigning currentTime on a non-seekable stream throws InvalidStateError.
   $('#seekBar').addEventListener('input', (event) => {
@@ -1400,7 +1461,7 @@ function bindGlobal() {
     $('#sortLibrary').innerHTML = `${state.librarySort === 'recent' ? '最近添加' : '按标题 A-Z'} ${icon('chevron-down')}`;
     $('#libraryList').innerHTML = libraryMarkup(); applySearchFilter();
   });
-  $('#clearQueue').addEventListener('click', () => { if (!state.queue.length) return showToast('队列已经是空的'); state.queue = []; $('#queueList').innerHTML = queueMarkup(); showToast('队列已清空'); });
+  $('#clearQueue').addEventListener('click', () => { if (!state.queue.length) return showToast('队列已经是空的'); state.queue = []; renderQueue(); showToast('队列已清空'); });
   $('#crossfadeToggle').addEventListener('click', () => { state.crossfade = !state.crossfade; $('#crossfadeToggle').classList.toggle('on', state.crossfade); $('#crossfadeToggle').setAttribute('aria-checked', String(state.crossfade)); $('#crossfadeLabel').textContent = state.crossfade ? '交叉淡入淡出已开启' : '交叉淡入淡出已关闭'; });
 
   $$('[data-sync-button]').forEach(button => button.addEventListener('click', () => syncLibrary()));
@@ -1524,7 +1585,9 @@ async function boot() {
   // Settings first, and awaited: the theme and accent are applied from it, so
   // doing this after the first paint would flash the default light blue before
   // switching to whatever the user actually chose.
-  await loadSettings();
+  // Saved favorites and queue metadata load alongside, because adoptLibrary
+  // below rebuilds both from these ids and must not run before they exist.
+  await Promise.all([loadSettings(), loadSavedSessionData()]);
   applyVolume(); bindDelegatedEvents(); bindGlobal(); bindSettings(); bindAudio(); bindPlayerCommands();
   // Restoring a saved session now happens in the background, so the main process
   // pushes this once it settles. Without it the UI would sit on "not connected".
@@ -1536,6 +1599,7 @@ async function boot() {
   await Promise.all([loadPlaylists(), state.connected ? loadArtBase() : Promise.resolve()]);
   const library = await bridge()?.library?.();
   adoptLibrary(library || {});
+  restoreQueue();
   await restorePlayback();
   if (state.connected) syncLibrary(true);
 }
@@ -1549,6 +1613,7 @@ function bridge_onStatusChanged() {
       await loadArtBase();
       const library = await bridge()?.library?.();
       adoptLibrary(library || {});
+      restoreQueue();
       await restorePlayback();
       syncLibrary(true);
     }

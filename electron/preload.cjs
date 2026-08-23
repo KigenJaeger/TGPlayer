@@ -27,6 +27,10 @@ contextBridge.exposeInMainWorld('tgPlayer', {
       return () => ipcRenderer.removeListener('telegram:status-changed', listener);
     },
   },
+  favorites: {
+    list: () => ipcRenderer.invoke('favorites:list'),
+    save: (ids) => ipcRenderer.send('favorites:save', ids),
+  },
   playlists: {
     list: () => ipcRenderer.invoke('playlist:list'),
     create: (name) => ipcRenderer.invoke('playlist:create', name),
@@ -65,6 +69,9 @@ contextBridge.exposeInMainWorld('tgPlayer', {
     publishState: (state) => ipcRenderer.send('player:state', state),
     resumeState: () => ipcRenderer.invoke('player:resume-state'),
     saveResumeState: (state) => ipcRenderer.send('player:save-resume-state', state),
+    // Queue order changes without the track changing, so it gets its own
+    // fire-and-forget channel rather than riding on saveResumeState.
+    saveQueue: (ids) => ipcRenderer.send('player:save-queue', ids),
   },
   trayMenu: {
     command: (command) => ipcRenderer.send('tray:command', String(command || 'dismiss')),

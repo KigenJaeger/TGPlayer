@@ -1554,24 +1554,34 @@ const playbackStatePath = () => path.join(app.getPath('userData'), 'playback-sta
 function readPlaybackState() {
   try {
     const saved = JSON.parse(fs.readFileSync(playbackStatePath(), 'utf8'));
-    if (!saved || typeof saved !== 'object' || typeof saved.trackId !== 'string') return {};
-    return {
-      trackId: saved.trackId,
-      elapsed: Math.max(0, Number(saved.elapsed) || 0),
-      playing: Boolean(saved.playing),
+    if (!saved || typeof saved !== 'object') return {};
+    // queueIds rides in the same file as the resume point: both describe "what
+    // was about to play" and only make sense together after a restart.
+    const state = {
+      queueIds: Array.isArray(saved.queueIds) ? saved.queueIds.map(String) : [],
     };
+    if (typeof saved.trackId === 'string' && saved.trackId) {
+      state.trackId = saved.trackId;
+      state.elapsed = Math.max(0, Number(saved.elapsed) || 0);
+      state.playing = Boolean(saved.playing);
+    }
+    return state;
   } catch { return {}; }
 }
 
 let resumeState = readPlaybackState();
+function writePlaybackState() {
+  try { fs.writeFileSync(playbackStatePath(), JSON.stringify(resumeState), 'utf8'); } catch {}
+}
 function savePlaybackState(next) {
   if (!next || typeof next.trackId !== 'string' || !next.trackId) return;
   resumeState = {
+    ...resumeState,
     trackId: next.trackId,
     elapsed: Math.max(0, Number(next.elapsed) || 0),
     playing: Boolean(next.playing),
   };
-  try { fs.writeFileSync(playbackStatePath(), JSON.stringify(resumeState), 'utf8'); } catch {}
+  writePlaybackState();
 }
 
 function showWindow() {
@@ -1667,6 +1677,33 @@ ipcMain.on('player:state', (_event, next) => {
 ipcMain.handle('player:resume-state', () => resumeState);
 ipcMain.on('player:save-resume-state', (_event, next) => {
   savePlaybackState(next);
+});
+// The queue mutates independently of the playing track (add/remove/clear), so
+// it needs its own write path that does not require a current track to exist.
+ipcMain.on('player:save-queue', (_event, ids) => {
+  resumeState = { ...resumeState, queueIds: (Array.isArray(ids) ? ids : []).map(String).filter(Boolean) };
+  writePlaybackState();
+});
+
+// --- Favorites ---------------------------------------------------------------
+// Likes are keyed by "chatId:messageId" so they survive a resync that reorders
+// or partially rebuilds the library. Without this file every heart the user
+// tapped was forgotten the moment the app exited.
+const favoritesPath = () => path.join(app.getPath('userData'), 'favorites.json');
+function readFavoriteIds() {
+  try {
+    const data = JSON.parse(fs.readFileSync(favoritesPath(), 'utf8'));
+    return Array.isArray(data) ? data.map(String).filter(Boolean) : [];
+  } catch { return []; }
+}
+function saveFavoriteIds(ids) {
+  const list = (Array.isArray(ids) ? ids : []).map(String).filter(Boolean);
+  try { fs.writeFileSync(favoritesPath(), JSON.stringify(list, null, 2), 'utf8'); } catch {}
+}
+
+ipcMain.handle('favorites:list', async () => ({ ok: true, ids: readFavoriteIds() }));
+ipcMain.on('favorites:save', (_event, ids) => {
+  saveFavoriteIds(ids);
 });
 
 ipcMain.handle('tray:state', () => trayState());
