@@ -119,6 +119,14 @@ const SETTINGS_DEFAULTS = {
   // TrackCache.startKeepAlive for the measurement.
   keepSenderWarm: true,
   reduceMotion: false,
+  // Player mode. These live here rather than in playback-state.json because they
+  // are preferences, not a resume point: they must come back even when there is
+  // nothing to resume, and settings are the first thing the renderer loads at
+  // boot -- so shuffle is already correct on the very first paint.
+  shuffle: false,
+  repeat: 'off',             // 'off' | 'all' | 'one'
+  volume: 68,                // 0..100
+  muted: false,
 };
 const settingsPath = () => path.join(app.getPath('userData'), 'settings.json');
 
@@ -160,6 +168,13 @@ function saveSettings(patch) {
   next.minimizeToTray = Boolean(next.minimizeToTray);
   next.keepSenderWarm = Boolean(next.keepSenderWarm);
   next.reduceMotion = Boolean(next.reduceMotion);
+  next.shuffle = Boolean(next.shuffle);
+  next.muted = Boolean(next.muted);
+  if (!['off', 'all', 'one'].includes(next.repeat)) next.repeat = SETTINGS_DEFAULTS.repeat;
+  // A stored invalid volume would be a permanently silent (or permanently muted)
+  // player, so it is corrected here like every other out-of-range value.
+  const volume = Number(next.volume);
+  next.volume = Number.isFinite(volume) ? Math.min(100, Math.max(0, Math.round(volume))) : SETTINGS_DEFAULTS.volume;
   settings = next;
   try { fs.writeFileSync(settingsPath(), JSON.stringify(settings, null, 2), 'utf8'); } catch {}
   return settings;
@@ -241,6 +256,8 @@ async function resolveProxy() {
 async function dropTelegramClient() {
   const client = telegram?.client;
   telegram = null;
+  // The cached dialog list belongs to the account that was just dropped.
+  resetDialogs();
   if (!client) return;
   try { await client.destroy(); } catch {}
 }
@@ -367,13 +384,28 @@ function resolveRange(rangeHeader, size) {
 // once populates GramJS's internal entity cache, and this map keeps the resolved
 // objects so playback never re-scans.
 const entityCache = new Map();
-let dialogsLoaded = false;
+// The whole account's dialogs, fetched once per connected session. The previous
+// getDialogs({limit: 200|300}) silently cut the account off at a fixed count,
+// which hid chats from the picker and made them unscannable; iterDialogs pages
+// until Telegram stops handing them back. Scanning reuses this list, so the extra
+// requests are paid once instead of per chat.
+let dialogsCache = null;
 
-async function ensureDialogs() {
-  if (dialogsLoaded) return;
-  const dialogs = await withTelegram(client => client.getDialogs({ limit: 200 }));
+function resetDialogs() {
+  dialogsCache = null;
+  entityCache.clear();
+}
+
+async function ensureDialogs(force = false) {
+  if (dialogsCache && !force) return dialogsCache;
+  const dialogs = await withTelegram(async client => {
+    const list = [];
+    for await (const dialog of client.iterDialogs({})) list.push(dialog);
+    return list;
+  });
   dialogs.forEach(dialog => { if (dialog.entity) entityCache.set(String(dialog.id), dialog.entity); });
-  dialogsLoaded = true;
+  dialogsCache = dialogs.filter(dialog => dialog.entity);
+  return dialogsCache;
 }
 
 async function resolveEntity(chatId) {
@@ -427,13 +459,13 @@ function saveUserLibrary(library) {
 
 // Listing chats is deliberately separate from scanning them. Scanning every
 // dialog for audio costs one getMessages round trip per chat, which is the bulk
-// of sync time and mostly wasted on chats the user has no interest in. This just
-// reads the dialog list -- one request -- so the picker can appear immediately.
+// of sync time and mostly wasted on chats the user has no interest in. This only
+// reads the dialog list, so the picker can appear before any scanning happens.
+// The user pressing "load my chats" is the one moment a fresh list is wanted, so
+// that path forces a re-read; everything else reuses the session's copy.
 async function listChats() {
-  const dialogs = await withTelegram(client => client.getDialogs({ limit: 300 }));
-  dialogs.forEach(dialog => { if (dialog.entity) entityCache.set(String(dialog.id), dialog.entity); });
-  dialogsLoaded = true;
-  return dialogs.filter(dialog => dialog.entity).map(dialog => ({
+  const dialogs = await ensureDialogs(true);
+  return dialogs.map(dialog => ({
     id: String(dialog.id),
     title: dialog.title || dialog.name || 'Telegram chat',
     type: dialog.isChannel ? 'channel' : dialog.isGroup ? 'group' : 'private',
@@ -442,67 +474,202 @@ async function listChats() {
   }));
 }
 
+// --- Library scan -----------------------------------------------------------
+// Telegram serves messages.search/history 100 messages at a time -- that is
+// GramJS's own _MAX_CHUNK_SIZE -- so one page is one MTProto request, and a chat
+// is indexed by walking offsetId down until a short page comes back. The old code
+// asked for limit: 200 and stopped there, which is exactly why a chat could never
+// contribute more than its newest 200 audio messages.
+const SCAN_PAGE_SIZE = 100;
+// Politeness between pages. GramJS already sleeps through FLOOD_WAIT errors below
+// floodSleepThreshold (60s) and retries the request itself, so this only keeps the
+// request rate sane on very large chats.
+const SCAN_PAGE_DELAY_MS = 300;
+const sleepMs = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+let scanCancelled = false;
+
+function floodWaitSeconds(error) {
+  const match = /^FLOOD_WAIT_(\d+)$/.exec(String(error?.errorMessage || ''));
+  if (match) return Number(match[1]);
+  const seconds = Number(error?.seconds);
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
+}
+
+function dialogTitle(dialog) {
+  return dialog.title || dialog.name || 'Telegram chat';
+}
+
+function chatEntry(dialog) {
+  return {
+    id: String(dialog.id),
+    title: dialogTitle(dialog),
+    type: dialog.isChannel ? 'channel' : dialog.isGroup ? 'group' : 'private',
+    username: dialog.entity?.username || '',
+  };
+}
+
+// One message to one library track. Split out of the scan loop so the paging code
+// stays about paging. Returns null for anything that is not playable audio.
+function trackFromMessage(chatId, chatTitle, message) {
+  const document = message?.media?.document;
+  if (!document) return null;
+  const audio = document.attributes?.find(a => a.className === 'DocumentAttributeAudio');
+  const name = document.attributes?.find(a => a.className === 'DocumentAttributeFilename')?.fileName || '';
+  if (!audio && !/\.(mp3|m4a|m4b|aac|ogg|oga|opus|flac|wav|wma)$/i.test(name)) return null;
+  // The document is in hand right now. Caching its location and inline cover here
+  // is what stops the first play and the cover grid from each paying a getMessages
+  // round trip per track.
+  seedMediaCaches(chatId, message.id, document);
+  return {
+    id: `${chatId}:${message.id}`,
+    title: audio?.title || name.replace(/\.[a-z0-9]+$/i, '') || 'Telegram audio',
+    artist: audio?.performer || chatTitle || 'Telegram',
+    duration: audio?.duration || 0,
+    // Telegram reports the real duration for MTProto audio attributes, so it
+    // does not need the frame walker the bot path relies on.
+    measured: Boolean(audio?.duration),
+    channel: chatTitle || 'Telegram chat',
+    chatId,
+    messageId: message.id,
+    size: Number(document.size) || 0,
+    date: message.date || 0,
+    source: 'user',
+  };
+}
+
+// Walks one chat's audio history newest-to-oldest. `incremental` stops at the
+// highest message id already indexed, which is what keeps the automatic sync that
+// runs on every launch cheap; a full scan pages all the way down instead.
+// Returns complete: false whenever the walk was cut short, so the caller can keep
+// the stored index for that chat instead of replacing it with a partial one.
+async function scanChat(dialog, { incremental = false, watermark = 0, onPage } = {}) {
+  const { Api } = require('telegram');
+  const chatId = String(dialog.id);
+  const chatTitle = dialogTitle(dialog);
+  const filter = new Api.InputMessagesFilterMusic();
+  const minId = incremental ? watermark : 0;
+  const found = [];
+  let offsetId = 0;
+  let total = 0;
+  for (;;) {
+    if (scanCancelled) return { tracks: found, complete: false, total, cancelled: true, fatal: null };
+    let page;
+    try {
+      page = await withTelegram(client => client.getMessages(dialog.entity, {
+        limit: SCAN_PAGE_SIZE, offsetId, minId, filter,
+      }));
+    } catch (error) {
+      const seconds = floodWaitSeconds(error);
+      const fatal = seconds
+        ? { code: 'FLOOD_WAIT', seconds }
+        : { code: 'SCAN_FAILED', detail: String(error?.errorMessage || error?.message || error) };
+      return { tracks: found, complete: false, total, cancelled: false, fatal };
+    }
+    // messages.Search reports how many messages match the filter in the whole
+    // chat, so the first page already tells the caller how much work is left.
+    total = Math.max(total, Number(page?.total) || 0);
+    if (!page.length) return { tracks: found, complete: true, total, cancelled: false, fatal: null };
+    for (const message of page) {
+      const track = trackFromMessage(chatId, chatTitle, message);
+      if (track) found.push(track);
+    }
+    onPage?.({ chatId, chatTitle, scanned: found.length, total });
+    const lastId = Number(page[page.length - 1]?.id) || 0;
+    // A page that does not move the offset backwards would loop forever, so a
+    // non-decreasing id ends the walk rather than being trusted.
+    if (!lastId || (offsetId && lastId >= offsetId)) {
+      return { tracks: found, complete: true, total, cancelled: false, fatal: null };
+    }
+    offsetId = lastId;
+    if (page.length < SCAN_PAGE_SIZE) {
+      return { tracks: found, complete: true, total, cancelled: false, fatal: null };
+    }
+    await sleepMs(SCAN_PAGE_DELAY_MS);
+  }
+}
+
+// Same id, first occurrence wins -- the freshly scanned copy is what carries the
+// current title/date, and the stored copy is only there to keep old message ids.
+function dedupeTracks(list) {
+  const seen = new Set();
+  const out = [];
+  for (const track of list) {
+    const key = String(track.id || `${track.chatId}:${track.messageId}`);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(track);
+  }
+  return out;
+}
+
 // Unlike getUpdates this reads real history, so nothing depends on the 24h
 // update window and nothing is capped at 20MB.
-// selectedIds limits the scan to the chats the user picked; passing nothing keeps
-// the previous behaviour of scanning everything.
-async function collectUserAudio(selectedIds = null) {
-  const { Api } = require('telegram');
-  await ensureDialogs();
+// selectedIds limits the scan to the chats the user picked.
+//
+// The library is only ever allowed to grow per chat. A completed full scan
+// replaces that chat's index (so deletions and edits land); an incremental pass,
+// a cancelled scan, a flood stop, or a chat that was never reached keeps whatever
+// was already stored and unions the new tracks on top. That is what makes the
+// cancel button safe to press halfway through a large library.
+async function collectUserAudio(selectedIds, { incremental = false, onProgress } = {}) {
+  const previous = readUserLibrary();
+  const previousByChat = new Map();
+  for (const track of previous.tracks) {
+    const key = String(track.chatId);
+    if (!previousByChat.has(key)) previousByChat.set(key, []);
+    previousByChat.get(key).push(track);
+  }
+
+  const wanted = selectedIds?.length ? new Set(selectedIds.map(String)) : null;
+  const dialogs = await ensureDialogs();
+  const targets = dialogs.filter(dialog => !wanted || wanted.has(String(dialog.id)));
   const chats = [];
   const tracks = [];
-  const wanted = selectedIds?.length ? new Set(selectedIds.map(String)) : null;
-  const dialogs = await withTelegram(client => client.getDialogs({ limit: 300 }));
-  for (const dialog of dialogs) {
-    if (!dialog.entity) continue;
+  let processed = 0;
+  let cancelled = false;
+  let fatal = null;
+
+  for (const [index, dialog] of targets.entries()) {
+    if (scanCancelled) { cancelled = true; break; }
+    if (fatal) break;
     const chatId = String(dialog.id);
-    if (wanted && !wanted.has(chatId)) continue;
-    let messages = [];
-    try {
-      // Server-side audio filter: far cheaper than pulling all history.
-      messages = await withTelegram(client => client.getMessages(dialog.entity, { limit: 200, filter: new Api.InputMessagesFilterMusic() }));
-    } catch { continue; }
-    let count = 0;
-    for (const message of messages) {
-      const document = message?.media?.document;
-      if (!document) continue;
-      const audio = document.attributes?.find(a => a.className === 'DocumentAttributeAudio');
-      const name = document.attributes?.find(a => a.className === 'DocumentAttributeFilename')?.fileName || '';
-      if (!audio && !/\.(mp3|m4a|m4b|aac|ogg|oga|opus|flac|wav|wma)$/i.test(name)) continue;
-      tracks.push({
-        id: `${chatId}:${message.id}`,
-        title: audio?.title || name.replace(/\.[a-z0-9]+$/i, '') || 'Telegram audio',
-        artist: audio?.performer || dialog.title || 'Telegram',
-        duration: audio?.duration || 0,
-        // Telegram reports the real duration for MTProto audio attributes, so it
-        // does not need the frame walker the bot path relies on.
-        measured: Boolean(audio?.duration),
-        channel: dialog.title || 'Telegram chat',
-        chatId,
-        messageId: message.id,
-        size: Number(document.size) || 0,
-        date: message.date || 0,
-        source: 'user',
-      });
-      // The document is in hand right now. Caching its location and inline cover
-      // here is what stops the first play and the cover grid from each paying a
-      // getMessages round trip per track.
-      seedMediaCaches(chatId, message.id, document);
-      count += 1;
+    const chatTitle = dialogTitle(dialog);
+    const stored = previousByChat.get(chatId) || [];
+    const watermark = stored.reduce((max, track) => Math.max(max, Number(track.messageId) || 0), 0);
+    onProgress?.({ phase: 'chat', chatId, chatTitle, chatsDone: index, chatsTotal: targets.length, scanned: 0, total: 0 });
+    const result = await scanChat(dialog, {
+      incremental,
+      watermark,
+      onPage: info => onProgress?.({ phase: 'chat', chatsDone: index, chatsTotal: targets.length, ...info }),
+    });
+    processed = index + 1;
+    if (result.cancelled) cancelled = true;
+    if (result.fatal) fatal = result.fatal;
+    const merged = result.complete && !incremental
+      ? result.tracks
+      : dedupeTracks([...result.tracks, ...stored]);
+    if (merged.length) {
+      chats.push(chatEntry(dialog));
+      tracks.push(...merged);
     }
-    if (count) {
-      chats.push({
-        id: chatId,
-        title: dialog.title || 'Telegram chat',
-        type: dialog.isChannel ? 'channel' : dialog.isGroup ? 'group' : 'private',
-        username: dialog.entity?.username || '',
-      });
-    }
+    onProgress?.({ phase: 'chat', chatId, chatTitle, chatsDone: index, chatsTotal: targets.length, scanned: merged.length, total: result.total });
+    if (cancelled || fatal) break;
   }
+
+  // Selected chats the walk never reached -- the normal case when the user stops
+  // a scan partway -- keep exactly what was already indexed.
+  for (const dialog of targets.slice(processed)) {
+    const stored = previousByChat.get(String(dialog.id)) || [];
+    if (!stored.length) continue;
+    chats.push(chatEntry(dialog));
+    tracks.push(...stored);
+  }
+
   tracks.sort((a, b) => b.date - a.date);
   const library = { chats, tracks };
   saveUserLibrary(library);
-  return library;
+  return { ...library, cancelled, fatal };
 }
 
 // --- Streaming engine -------------------------------------------------------
@@ -1430,18 +1597,76 @@ ipcMain.handle('playlist:remove-tracks', async (_event, payload = {}) => {
   return { ok: true, playlists };
 });
 
-// Scanning is now limited to the chats the user picked. With nothing selected the
+// Scanning is limited to the chats the user picked. With nothing selected the
 // scan would silently do nothing, so that case is reported rather than returning
 // an empty library that looks like a failure.
-ipcMain.handle('telegram:sync', async () => {
+//
+// Two modes: 'full' re-pages every selected chat's audio history (the sync button),
+// 'incremental' only asks for messages newer than what is already indexed (the
+// automatic sync on launch). Progress is pushed to the renderer because a full
+// scan of a large chat is minutes of work, not one round trip.
+let activeSync = null;
+
+function sendSyncProgress(payload) {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return;
+  mainWindow.webContents.send('telegram:sync-progress', payload);
+}
+
+// One progress event per page would be thousands of IPC messages on a large chat,
+// so pushes are throttled; the last payload always goes out when the run ends.
+function makeProgressPusher() {
+  let last = 0;
+  let latest = null;
+  return {
+    push(payload) {
+      latest = payload;
+      const now = Date.now();
+      if (now - last < 250) return;
+      last = now;
+      sendSyncProgress(payload);
+    },
+    flush() { if (latest) sendSyncProgress(latest); },
+  };
+}
+
+ipcMain.handle('telegram:sync-cancel', () => {
+  scanCancelled = true;
+  return { ok: true };
+});
+
+ipcMain.handle('telegram:sync', async (_event, payload = {}) => {
   if (!telegram?.client) return { ok: false, code: 'NOT_CONNECTED' };
+  // The launch sync and the button are two ways into the same work; the second
+  // caller must not start a competing walk over the same account.
+  if (activeSync) return { ok: false, code: 'SYNC_IN_PROGRESS' };
   const selected = readSelectedChats();
   if (!selected.length) return { ok: false, code: 'NO_CHATS_SELECTED' };
-  try {
-    const before = readUserLibrary().tracks.length;
-    const library = await collectUserAudio(selected);
-    return { ok: true, added: Math.max(0, library.tracks.length - before), chats: library.chats, tracks: library.tracks };
-  } catch (error) { return { ok: false, code: error.message || 'SYNC_FAILED' }; }
+  const incremental = payload?.mode === 'incremental';
+  const before = readUserLibrary().tracks.length;
+  scanCancelled = false;
+  const progress = makeProgressPusher();
+  sendSyncProgress({ phase: 'start', mode: incremental ? 'incremental' : 'full', chatsTotal: selected.length });
+  activeSync = (async () => {
+    try {
+      const library = await collectUserAudio(selected, { incremental, onProgress: progress.push });
+      progress.flush();
+      return {
+        ok: true,
+        mode: incremental ? 'incremental' : 'full',
+        cancelled: Boolean(library.cancelled),
+        fatal: library.fatal,
+        added: Math.max(0, library.tracks.length - before),
+        chats: library.chats,
+        tracks: library.tracks,
+      };
+    } catch (error) {
+      return { ok: false, code: error?.errorMessage || error?.message || 'SYNC_FAILED' };
+    } finally {
+      activeSync = null;
+      sendSyncProgress({ phase: 'done' });
+    }
+  })();
+  return activeSync;
 });
 
 ipcMain.handle('telegram:stream-url', async (_event, payload = {}) => {
@@ -1468,11 +1693,14 @@ ipcMain.handle('telegram:stream-url', async (_event, payload = {}) => {
 });
 
 ipcMain.handle('telegram:logout', async () => {
+  // Stopping an in-flight scan first: it would otherwise keep asking a destroyed
+  // client for pages until every chat had failed.
+  scanCancelled = true;
   try { if (telegram?.client) await telegram.client.logOut(); } catch {}
   await dropTelegramClient();
   saveSession({});
   try { fs.unlinkSync(userLibraryPath()); } catch {}
-  entityCache.clear(); dialogsLoaded = false;
+  resetDialogs();
   return { ok: true };
 });
 
@@ -1584,6 +1812,16 @@ function savePlaybackState(next) {
   writePlaybackState();
 }
 
+// Drops the resume point but keeps the queue: the renderer calls this once it has
+// proved against a finished scan that the saved track is no longer in the library.
+// Without it every later launch would repeat the same "that track is gone" notice
+// for a track that can never come back.
+function clearPlaybackTrack() {
+  const { queueIds } = resumeState;
+  resumeState = { queueIds: Array.isArray(queueIds) ? queueIds : [] };
+  writePlaybackState();
+}
+
 function showWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) return createWindow();
   if (!mainWindow.isVisible()) mainWindow.show();
@@ -1677,6 +1915,9 @@ ipcMain.on('player:state', (_event, next) => {
 ipcMain.handle('player:resume-state', () => resumeState);
 ipcMain.on('player:save-resume-state', (_event, next) => {
   savePlaybackState(next);
+});
+ipcMain.on('player:clear-resume-state', () => {
+  clearPlaybackTrack();
 });
 // The queue mutates independently of the playing track (add/remove/clear), so
 // it needs its own write path that does not require a current track to exist.

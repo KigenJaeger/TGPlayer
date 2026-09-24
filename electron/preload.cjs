@@ -9,10 +9,22 @@ contextBridge.exposeInMainWorld('tgPlayer', {
     status: () => ipcRenderer.invoke('telegram:status'),
     library: () => ipcRenderer.invoke('telegram:library'),
     artBase: () => ipcRenderer.invoke('telegram:art-base'),
-    sync: () => ipcRenderer.invoke('telegram:sync'),
+    // mode 'full' re-pages every selected chat; 'incremental' only asks for what
+    // is newer than the stored index, which is what launch syncs use.
+    sync: (options) => ipcRenderer.invoke('telegram:sync', options || {}),
+    cancelSync: () => ipcRenderer.invoke('telegram:sync-cancel'),
+    // A full scan of a large chat takes minutes, so the main process pushes how
+    // far along it is instead of the renderer guessing from one pending invoke.
+    onSyncProgress: (handler) => {
+      if (typeof handler !== 'function') return () => {};
+      const listener = (_event, payload) => handler(payload || {});
+      ipcRenderer.on('telegram:sync-progress', listener);
+      return () => ipcRenderer.removeListener('telegram:sync-progress', listener);
+    },
     streamUrl: (payload) => ipcRenderer.invoke('telegram:stream-url', payload),
-    // Listing chats is one request; scanning them is one request each. Keeping
-    // them separate is what lets the picker appear before any scanning happens.
+    // Listing chats is separate from scanning them: the picker needs the dialog
+    // list (paged once per session, then cached), while scanning costs requests
+    // per page of each selected chat.
     channels: () => ipcRenderer.invoke('telegram:channels'),
     selectChats: (ids) => ipcRenderer.invoke('telegram:select-chats', ids),
     logout: () => ipcRenderer.invoke('telegram:logout'),
@@ -69,6 +81,9 @@ contextBridge.exposeInMainWorld('tgPlayer', {
     publishState: (state) => ipcRenderer.send('player:state', state),
     resumeState: () => ipcRenderer.invoke('player:resume-state'),
     saveResumeState: (state) => ipcRenderer.send('player:save-resume-state', state),
+    // Forgets the saved track, keeping the queue: used when a finished scan proves
+    // the track is no longer in the library, so later launches stop chasing it.
+    clearResumeState: () => ipcRenderer.send('player:clear-resume-state'),
     // Queue order changes without the track changing, so it gets its own
     // fire-and-forget channel rather than riding on saveResumeState.
     saveQueue: (ids) => ipcRenderer.send('player:save-queue', ids),

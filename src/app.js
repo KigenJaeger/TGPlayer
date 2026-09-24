@@ -5,6 +5,9 @@ const icon = (name, extra = '') => `<svg class="icon${extra ? ' ' + extra : ''}"
 const ART_CLASSES = ['art-sunset', 'art-blue', 'art-mint', 'art-rose', 'art-gold', 'art-violet'];
 const ART_ICONS = ['disc', 'sparkle', 'moon', 'broadcast', 'cassette', 'note'];
 const CHANNEL_TONES = ['amber', 'teal', 'lilac', 'rose'];
+// A restore that keeps failing is a broken session (offline, server not up), not a
+// track to keep re-opening: three tries, then wait for the user or the next launch.
+const MAX_RESUME_ATTEMPTS = 3;
 
 // Real data only. Both arrays stay empty until Telegram fills them.
 let channels = [];
@@ -22,6 +25,10 @@ const state = {
   shuffle: false, repeat: 'off', volume: 68, muted: false, sinkId: '',
   queue: [], libraryFilter: 'all', librarySort: 'recent', crossfade: true,
   connected: false, buffering: false, authStep: 'credentials', phone: '', query: '', syncing: false, user: null,
+  // A full library scan pages a chat's whole audio history, so it can run for
+  // minutes. syncProgress is the last event the main process pushed, and
+  // syncCancelling marks the button as "stopping" until the invoke settles.
+  syncProgress: null, syncCancelling: false,
   // GramJS cannot see the system proxy, so the route is app-level config the
   // user can inspect and override. null until the main process reports it.
   proxy: null,
@@ -40,7 +47,12 @@ const state = {
   // Mirrors settings.json in the main process. Kept here so a control can render
   // its current value without an IPC round trip on every repaint.
   settings: null, systemDark: false,
-  resumeSavedAt: 0, playbackRestored: false,
+  resumeSavedAt: 0,
+  // What the last session was playing, and how far the attempt to get back to it
+  // has gone. The request survives a failed attempt on purpose: the library may
+  // not be loaded yet, the session may not be connected yet, or a sync may still
+  // bring the track back -- none of which should cost the user their place.
+  resumeTarget: null, resumeRestored: false, resumeAttempts: 0,
   // Favorites and the play queue are persisted by track id and read back once
   // per launch. queueRestored gates writes so early boot renders cannot wipe
   // the saved file before the restore has run.
@@ -723,9 +735,12 @@ function nextIndex(step) {
   return (state.current + step + tracks.length) % tracks.length;
 }
 
+// Resolves to true once a stream is actually loaded, which is what the resume
+// logic needs to know: a track whose URL could not be fetched (offline session,
+// server not up yet) must stay retryable rather than count as "restored".
 async function playTrack(index, options = {}) {
   const track = tracks[index];
-  if (!track) return showToast(NO_TRACKS);
+  if (!track) { showToast(NO_TRACKS); return false; }
   const resumeAt = Math.max(0, Number(options.resumeAt) || 0);
   state.current = index; state.elapsed = resumeAt;
   // Recorded here so the now-playing panel survives a library rebuild mid-playback.
@@ -735,32 +750,53 @@ async function playTrack(index, options = {}) {
   // MTProto streams on demand, so playback can begin without downloading the whole file.
   showToast(`正在加载 ${track.title}…`);
   const result = await bridge()?.streamUrl?.({ channel: track.chatId, messageId: track.messageId });
-  if (!result?.ok || !result.url) { state.playing = false; updatePlayer(); return showToast(connectErrorMessage(result?.code)); }
+  if (!result?.ok || !result.url) { state.playing = false; updatePlayer(); showToast(connectErrorMessage(result?.code)); return false; }
   // The main process walked every frame header, so this is the real length.
   if (result.duration) { track.duration = result.duration; track.durationText = formatTime(result.duration); track.measured = true; renderCollections(); }
   audio.src = result.url; applyVolume();
+  // Anything loaded at all ends the resume request: the saved-track restore is only
+  // meaningful while the player is empty, and this is what stops a later trigger
+  // (a sync finishing, the connection coming up) from pulling the user off the
+  // track they picked themselves in the meantime.
+  state.resumeRestored = true;
+  // Written here rather than only from the play/pause events: selecting a track
+  // whose autoplay Chromium blocks, or restoring one that was paused, never fires
+  // 'play' -- and the next launch would then reopen the track before it.
+  saveResumeState(true);
   if (resumeAt) {
+    let seeked = false;
     await new Promise(resolve => {
       let settled = false;
       const finish = (restore) => {
         if (settled) return;
         settled = true;
-        if (restore) audio.currentTime = resumeAt;
+        if (restore) {
+          seeked = true;
+          // Seeked to whatever the element will actually accept: assigning a value
+          // past the reported duration throws InvalidStateError on some streams.
+          const duration = Number(audio.duration);
+          const target = Number.isFinite(duration) && duration > 0 ? Math.min(resumeAt, duration) : resumeAt;
+          try { audio.currentTime = target; } catch {}
+        }
         resolve();
       };
-      const restorePosition = () => finish(true);
-      audio.addEventListener('loadedmetadata', restorePosition, { once: true });
+      audio.addEventListener('loadedmetadata', () => finish(true), { once: true });
       setTimeout(() => finish(false), 1500);
     });
+    // A stream that never reported its metadata starts from 0, so the clock has to
+    // say 0 too: leaving 7:18 on screen over a track playing from the beginning is
+    // worse than losing the position.
+    if (!seeked) { state.elapsed = Math.max(0, audio.currentTime || 0); updateProgress(); }
   }
   if (options.autoplay !== false) try { await audio.play(); }
   catch (error) {
     // AbortError just means a newer load superseded this one; only NotAllowedError
     // is an actual block. Reporting both as "blocked" was a misdiagnosis.
-    if (error?.name === 'AbortError') return;
+    if (error?.name === 'AbortError') return false;
     showToast(error?.name === 'NotAllowedError' ? '播放被浏览器拦截' : `播放失败 · ${error?.name || '未知错误'}`);
   }
   updatePlayer();
+  return true;
 }
 
 function updateProgress(force = false) {
@@ -841,7 +877,17 @@ function updatePlayer() {
 function togglePlayback() {
   const audio = $('#audioElement');
   if (!tracks.length) return showToast(NO_TRACKS);
-  if (!audio.src) return playTrack(state.current >= 0 ? state.current : 0);
+  if (!audio.src) {
+    // The saved track rather than row 0. Restoring can lose to a library that has
+    // not been adopted yet, and starting the newest track instead is exactly the
+    // "it forgot my song" behaviour this is here to avoid. An explicit click also
+    // resets the automatic attempt budget, because the user is asking for it.
+    if (state.resumeTarget && findResumeIndex() >= 0) {
+      state.resumeAttempts = 0;
+      return playResumeTarget({ autoplay: true });
+    }
+    return playTrack(state.current >= 0 ? state.current : 0);
+  }
   if (audio.paused) audio.play().catch(() => {}); else audio.pause();
 }
 
@@ -883,16 +929,55 @@ function saveResumeState(force = false) {
   });
 }
 
-async function restorePlayback() {
-  if (state.playbackRestored || !state.connected) return;
-  state.playbackRestored = true;
-  const saved = await window.tgPlayer?.player?.resumeState?.();
-  if (!saved?.trackId) return;
-  const index = tracks.findIndex(track => track.trackId === saved.trackId);
-  if (index < 0) return;
-  // Reopen the most recent stream at its saved position. Electron permits this
-  // app-originated resume because it is restoring the user's previous session.
-  await playTrack(index, { resumeAt: saved.elapsed, autoplay: saved.playing });
+// Shuffle is a stored preference, not a per-session toggle, so every path that
+// changes it (the button, the "随机播放" hero action) goes through here and writes
+// it back. Otherwise the choice would silently reset on the next launch.
+function setShuffle(on) {
+  state.shuffle = Boolean(on);
+  updatePlayer();
+  patchSettings({ shuffle: state.shuffle });
+}
+
+async function restorePlayback(reason = 'boot') {
+  if (!state.resumeTarget || state.resumeRestored) return;
+  if (findResumeIndex() < 0) {
+    // Before a scan has finished the library simply may not be loaded yet, so a
+    // miss only means "this track is gone" once main has beeped a sync back.
+    if (reason !== 'sync') return;
+    state.resumeTarget = null;
+    // Forgetting it on disk too: the track is not coming back, and a notice on
+    // every future launch for a track that no longer exists is just noise.
+    window.tgPlayer?.player?.clearResumeState?.();
+    showToast('上次播放的曲目已不在音乐库中。');
+    return;
+  }
+  if (state.resumeAttempts >= MAX_RESUME_ATTEMPTS) return;
+  await playResumeTarget();
+}
+
+function findResumeIndex() {
+  const target = state.resumeTarget;
+  if (!target) return -1;
+  return tracks.findIndex(track => track.trackId === target.trackId);
+}
+
+// Reopens the most recent stream at its saved position. Returns false when the
+// stream could not be reached, which leaves the request alive for the connection
+// push, the next library adoption or an explicit play click to pick up.
+async function playResumeTarget(options = {}) {
+  const target = state.resumeTarget;
+  const index = findResumeIndex();
+  if (!target || index < 0) return false;
+  state.resumeAttempts += 1;
+  const loaded = await playTrack(index, {
+    resumeAt: target.elapsed,
+    autoplay: options.autoplay === undefined ? Boolean(target.playing) : options.autoplay,
+  });
+  // Either it loaded, or something else took the player over while this was in
+  // flight -- in both cases there is nothing left to restore, and retrying later
+  // would yank the user back off the track they chose.
+  if (loaded || state.current !== index) state.resumeRestored = true;
+  return loaded;
 }
 
 // Favorites and the saved queue are read back once per launch, before the
@@ -908,6 +993,16 @@ async function loadSavedSessionData() {
       state.favoriteIds = new Set(favoritesResult.ids.map(String));
     }
     state.savedResume = (resume && typeof resume === 'object') ? resume : null;
+    // The track is read out of the same payload as the queue but kept separate:
+    // the queue is data to restore, this is a request that keeps being retried
+    // until it succeeds or the library proves the track is gone.
+    if (state.savedResume?.trackId) {
+      state.resumeTarget = {
+        trackId: String(state.savedResume.trackId),
+        elapsed: Math.max(0, Number(state.savedResume.elapsed) || 0),
+        playing: state.savedResume.playing === true,
+      };
+    }
   } catch {}
 }
 
@@ -1000,6 +1095,10 @@ async function loadSettings() {
     state.settings = result.settings;
     state.systemDark = Boolean(result.systemDark);
   } catch {}
+  // Player mode is a stored preference, so it has to be adopted before the first
+  // paint -- otherwise a shuffle user sees the button unlit for a frame and, worse,
+  // the first advance() would run in the wrong mode.
+  applyPlayerPrefs();
   // Windows can change its light/dark setting while we are running, and under
   // contextIsolation the renderer cannot read that itself, so main pushes it.
   // Only matters while the theme is "system", but subscribing once here is
@@ -1009,6 +1108,18 @@ async function loadSettings() {
     applyAppearance();
   });
   applyAppearance();
+}
+
+// shuffle/repeat/volume/muted are carried in settings.json, but the player reads
+// them off `state`, so this is the one place that copies them across.
+function applyPlayerPrefs() {
+  const config = state.settings || {};
+  state.shuffle = Boolean(config.shuffle);
+  state.repeat = ['off', 'all', 'one'].includes(config.repeat) ? config.repeat : 'off';
+  const volume = Number(config.volume);
+  state.volume = Number.isFinite(volume) ? Math.min(100, Math.max(0, Math.round(volume))) : 68;
+  state.muted = Boolean(config.muted);
+  applyVolume(); updateVolumeIcon(); updatePlayer();
 }
 
 // Every control writes through immediately -- there is no save button, so a
@@ -1357,7 +1468,10 @@ async function finishConnection() {
   // reload.
   await loadArtBase();
   await loadPlaylists();
-  await syncLibrary(true);
+  // Incremental on purpose: a fresh sign-in has no stored index to backfill, so
+  // this still walks everything the first time, and later launches only ask for
+  // what is new.
+  await syncLibrary('incremental', true);
 }
 
 function updateConnectionCard() {
@@ -1370,28 +1484,74 @@ function updateConnectionCard() {
   renderSettings();
 }
 
-async function syncLibrary(quiet = false) {
+// The button is the only place a long scan reports itself, and it doubles as the
+// stop control while one is running, so its label is rebuilt from the pushed
+// progress rather than from a single "syncing" boolean.
+function updateSyncButton() {
+  if (!state.syncing) return;
+  const label = $('[data-sync-button="label"]');
+  const stop = state.syncCancelling ? '正在停止…' : '停止扫描';
+  $$('[data-sync-button]').forEach(button => {
+    button.classList.add('is-busy');
+    // The icon-only button has no text, so its accessible name has to follow the
+    // action it now performs or a screen reader would still call it "sync".
+    if (button.dataset.syncButton === 'icon') {
+      button.setAttribute('aria-label', stop);
+      button.setAttribute('title', stop);
+    }
+  });
+  if (!label) return;
+  if (state.syncCancelling) { label.innerHTML = `${icon('cloud')} 正在停止…`; return; }
+  const progress = state.syncProgress;
+  if (!progress || progress.phase === 'start') { label.innerHTML = `${icon('cloud')} 正在同步…`; return; }
+  const parts = [];
+  if (progress.chatsTotal) parts.push(`${Math.min(progress.chatsDone + 1, progress.chatsTotal)}/${progress.chatsTotal}`);
+  // Chat titles are arbitrary length; the button is a fixed piece of a toolbar,
+  // so a long one is shortened rather than allowed to stretch the bar.
+  if (progress.chatTitle) parts.push(progress.chatTitle.length > 12 ? `${progress.chatTitle.slice(0, 12)}…` : progress.chatTitle);
+  if (progress.scanned) parts.push(`已 ${progress.scanned} 首${progress.total ? ` / 约 ${progress.total}` : ''}`);
+  label.innerHTML = `${icon('cloud')} ${parts.length ? parts.join(' · ') : '正在扫描…'}`;
+}
+
+async function cancelSync() {
+  if (!state.syncing || state.syncCancelling) return;
+  state.syncCancelling = true;
+  updateSyncButton();
+  try { await bridge()?.cancelSync?.(); } catch {}
+}
+
+async function syncLibrary(mode = 'full', quiet = false) {
   const run = bridge()?.sync;
   if (!run || state.syncing) return;
   state.syncing = true;
+  state.syncProgress = null;
+  state.syncCancelling = false;
   // Sync has two triggers now, so both have to show the same busy state or the
-  // topbar copy would sit there looking idle through the whole scan.
+  // topbar copy would sit there looking idle through the whole scan. The buttons
+  // stay enabled on purpose: while a scan runs, clicking one stops it.
   const buttons = $$('[data-sync-button]');
-  const originals = buttons.map(item => item.innerHTML);
-  buttons.forEach(item => {
-    item.disabled = true;
-    item.classList.add('is-busy');
-    if (item.dataset.syncButton === 'label') item.innerHTML = `${icon('cloud')} 正在同步…`;
-  });
+  const originals = buttons.map(item => ({
+    html: item.innerHTML,
+    label: item.getAttribute('aria-label'),
+    title: item.getAttribute('title'),
+  }));
+  updateSyncButton();
   let result;
-  try { result = await run(); }
+  try { result = await run({ mode }); }
   catch (error) { result = { ok: false, code: String(error?.message || error) }; }
   buttons.forEach((item, index) => {
     item.disabled = false;
     item.classList.remove('is-busy');
-    item.innerHTML = originals[index];
+    item.innerHTML = originals[index].html;
+    if (originals[index].label !== null) item.setAttribute('aria-label', originals[index].label);
+    if (originals[index].title !== null) item.setAttribute('title', originals[index].title);
   });
   state.syncing = false;
+  state.syncProgress = null;
+  state.syncCancelling = false;
+  // Already owned by the other sync (launch vs. button). Its own call will adopt
+  // the library and report, so this caller stays silent.
+  if (result?.code === 'SYNC_IN_PROGRESS') return;
   // Nothing picked yet is the normal first-run state, not a failure. Sending the
   // user to the picker is more use than an error toast on a page they cannot see.
   if (result?.code === 'NO_CHATS_SELECTED') {
@@ -1402,6 +1562,19 @@ async function syncLibrary(quiet = false) {
   }
   if (!result?.ok) return showError(connectErrorMessage(result?.code));
   adoptLibrary(result);
+  // The one moment the library can be trusted to say "that track is gone": a scan
+  // that finished, was not stopped, and was not cut short by Telegram. Before this
+  // a miss just means the library is not loaded yet, so the restore keeps waiting.
+  if (!result.cancelled && !result.fatal) restorePlayback('sync').catch(() => {});
+  // A stopped or cut-short scan still publishes what it collected -- the main
+  // process keeps the stored index for anything it did not reach -- so the toast
+  // has to say so instead of looking like a failed sync.
+  if (result.cancelled) return showToast(`已停止扫描，音乐库共 ${result.tracks?.length || 0} 首，原有曲目已保留。`);
+  if (result.fatal?.code === 'FLOOD_WAIT') {
+    const minutes = Math.max(1, Math.ceil(Number(result.fatal.seconds || 0) / 60));
+    return showError(`Telegram 限流，约 ${minutes} 分钟后可重试。已保留扫描到的部分。`);
+  }
+  if (result.fatal?.code === 'SCAN_FAILED') return showError(`扫描中断：${result.fatal.detail || '未知错误'}`);
   if (result.added) return showToast(`从你的账号收集到 ${result.added} 首新曲目。`);
   if (!quiet) showToast(result.tracks?.length ? `账号音乐库共 ${result.tracks.length} 首。` : '在你的聊天里没有找到音频。');
 }
@@ -1417,20 +1590,23 @@ function bindGlobal() {
 
   $('#playButton').addEventListener('click', togglePlayback);
   $('#heroPlay').addEventListener('click', () => playTrack(0));
-  $('#mixPlay').addEventListener('click', () => { if (!tracks.length) return showToast(NO_TRACKS); state.shuffle = true; playTrack(Math.floor(Math.random() * tracks.length)); });
+  $('#mixPlay').addEventListener('click', () => { if (!tracks.length) return showToast(NO_TRACKS); setShuffle(true); playTrack(Math.floor(Math.random() * tracks.length)); });
   $('#nextButton').addEventListener('click', () => advance());
   $('#previousButton').addEventListener('click', () => { if (state.elapsed > 3) { $('#audioElement').currentTime = 0; return; } playTrack(nextIndex(-1)); });
 
-  $('#shuffleButton').addEventListener('click', () => { state.shuffle = !state.shuffle; updatePlayer(); showToast(state.shuffle ? '随机播放已开启' : '随机播放已关闭'); });
+  $('#shuffleButton').addEventListener('click', () => { setShuffle(!state.shuffle); showToast(state.shuffle ? '随机播放已开启' : '随机播放已关闭'); });
   $('#repeatButton').addEventListener('click', () => {
     state.repeat = state.repeat === 'off' ? 'all' : state.repeat === 'all' ? 'one' : 'off';
-    updatePlayer(); showToast({ off: '不循环', all: '列表循环', one: '单曲循环' }[state.repeat]);
+    updatePlayer(); patchSettings({ repeat: state.repeat }); showToast({ off: '不循环', all: '列表循环', one: '单曲循环' }[state.repeat]);
   });
 
   $('#deviceButton').addEventListener('click', openDevicePopover);
   $('#queueButton').addEventListener('click', () => setPage('queue'));
   $('#volumeBar').addEventListener('input', (event) => { state.volume = Number(event.target.value); state.muted = state.volume === 0; applyVolume(); updateVolumeIcon(); });
-  $('#muteButton').addEventListener('click', () => { state.muted = !state.muted; if (!state.muted && state.volume === 0) state.volume = 40; applyVolume(); updateVolumeIcon(); showToast(state.muted ? '已静音' : '已取消静音'); });
+  // 'input' fires on every pixel of the drag; the mode is written on 'change' so a
+  // drag is one settings write, the same rule the settings-page sliders follow.
+  $('#volumeBar').addEventListener('change', () => patchSettings({ volume: state.volume, muted: state.muted }));
+  $('#muteButton').addEventListener('click', () => { state.muted = !state.muted; if (!state.muted && state.volume === 0) state.volume = 40; applyVolume(); updateVolumeIcon(); patchSettings({ muted: state.muted, volume: state.volume }); showToast(state.muted ? '已静音' : '已取消静音'); });
   $('#expandButton').addEventListener('click', () => { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(() => showToast('无法进入全屏')); });
   document.addEventListener('fullscreenchange', () => {
     const full = Boolean(document.fullscreenElement);
@@ -1464,7 +1640,14 @@ function bindGlobal() {
   $('#clearQueue').addEventListener('click', () => { if (!state.queue.length) return showToast('队列已经是空的'); state.queue = []; renderQueue(); showToast('队列已清空'); });
   $('#crossfadeToggle').addEventListener('click', () => { state.crossfade = !state.crossfade; $('#crossfadeToggle').classList.toggle('on', state.crossfade); $('#crossfadeToggle').setAttribute('aria-checked', String(state.crossfade)); $('#crossfadeLabel').textContent = state.crossfade ? '交叉淡入淡出已开启' : '交叉淡入淡出已关闭'; });
 
-  $$('[data-sync-button]').forEach(button => button.addEventListener('click', () => syncLibrary()));
+  // While a scan is running the same buttons stop it, because a full scan of a
+  // large chat is long enough that waiting it out is not a reasonable option.
+  $$('[data-sync-button]').forEach(button => button.addEventListener('click', () => {
+    if (state.syncing) return cancelSync();
+    // The button is the full re-index: it is what backfills a chat whose history
+    // was indexed before the scan stopped truncating at 200 tracks.
+    syncLibrary('full', false);
+  }));
 
   // --- Chat picker ---
   $('#loadChats').addEventListener('click', loadChatList);
@@ -1592,6 +1775,7 @@ async function boot() {
   // Restoring a saved session now happens in the background, so the main process
   // pushes this once it settles. Without it the UI would sit on "not connected".
   bridge_onStatusChanged();
+  bridge_onSyncProgress();
   await refreshStatus();
   // Playlists live on disk independently of the library, so they show up even
   // before a sync. The art base needs the stream server's port, which only
@@ -1600,8 +1784,23 @@ async function boot() {
   const library = await bridge()?.library?.();
   adoptLibrary(library || {});
   restoreQueue();
-  await restorePlayback();
-  if (state.connected) syncLibrary(true);
+  // Deliberately not gated on the connection: the saved track is looked up in the
+  // local library, and a stream that cannot be reached yet keeps the request alive
+  // for the connect push, the launch scan or an explicit play click.
+  await restorePlayback('boot');
+  // Launch sync is incremental: the stored library already holds every chat's
+  // history, so this only pulls audio posted since the last run.
+  if (state.connected) syncLibrary('incremental', true);
+}
+
+// Progress arrives only while a scan runs, and it is what keeps the button honest
+// during a walk that can take minutes.
+function bridge_onSyncProgress() {
+  window.tgPlayer?.telegram?.onSyncProgress?.((progress) => {
+    if (progress?.phase === 'done') return;
+    state.syncProgress = progress;
+    if (state.syncing) updateSyncButton();
+  });
 }
 
 function bridge_onStatusChanged() {
@@ -1609,13 +1808,19 @@ function bridge_onStatusChanged() {
     const { wasConnected, connected } = await refreshStatus();
     if (connected && !wasConnected) {
       // The stream server comes up with the session, so this is the first moment
-      // cover and avatar URLs can resolve.
-      await loadArtBase();
-      const library = await bridge()?.library?.();
-      adoptLibrary(library || {});
-      restoreQueue();
-      await restorePlayback();
-      syncLibrary(true);
+      // cover and avatar URLs can resolve. Bounded, because artwork must never be
+      // something the restore sits behind: a main-process promise that never
+      // settles here would otherwise take the saved track down with it.
+      await Promise.race([loadArtBase(), new Promise(resolve => setTimeout(resolve, 3000))]);
+      try {
+        const library = await bridge()?.library?.();
+        adoptLibrary(library || {});
+        restoreQueue();
+      } catch {}
+      // Outside the guard on purpose: this is the first moment a saved track can be
+      // opened against a live session, so a failed library read must not skip it.
+      await restorePlayback('connect');
+      syncLibrary('incremental', true);
     }
   });
 }
