@@ -14,6 +14,7 @@
          it comes from the local CJK stack in styles.css -- so nothing waits now. -->
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Lora:wght@400;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
     <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./motion.css" />
   </head>
   <body class="light-mode">
     <!-- Icon sprite: every glyph in the UI is drawn, never typed, so encoding can never break it. -->
@@ -265,6 +266,7 @@
     <div class="track-menu" id="trackMenu" role="menu" aria-hidden="true"></div>
     <div class="toast" id="toast" role="status" aria-live="polite"><span class="toast-icon" id="toastIcon"><svg class="icon"><use href="#i-check" id="toastGlyph"/></svg></span><span id="toastText">已添加到收藏</span></div>
     <audio id="audioElement" preload="metadata"></audio>
+    <script src="./motion.js"></script>
     <script src="./app.js"></script>
   </body>
 </html>

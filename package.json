@@ -6,7 +6,7 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
-    "check": "node --check src/app.js && node --check electron/main.cjs && node --check electron/preload.cjs",
+    "check": "node --check src/motion.js && node --check src/app.js && node --check electron/main.cjs && node --check electron/preload.cjs",
     "dist": "npm run check && electron-builder --win nsis --x64",
     "portable": "npm run check && electron-builder --win portable --x64"
   },

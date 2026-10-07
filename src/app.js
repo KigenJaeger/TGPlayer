@@ -62,18 +62,88 @@ const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const bridge = () => window.tgPlayer?.telegram;
 
+// --- Motion helpers ---------------------------------------------------------
+// Everything below funnels into TGMotion, and every helper degrades to the plain
+// assignment when the runtime is missing or motion is switched off. The UI must
+// stay correct with motion off, so no helper may be the only thing that writes
+// a value.
+const motion = () => window.TGMotion;
+
+// Lists are rebuilt from innerHTML, so a listener bound to a row dies with the
+// row. Ripple attachment is therefore re-run after every render, and is
+// idempotent so re-running it costs nothing.
+//
+// A scope is passed wherever the caller knows what changed. Walking the whole
+// document on every render would re-query every row of a large library for
+// nothing, since attachment is already marked on each element.
+function refreshMotion(scope) {
+  const m = motion();
+  if (m) m.ripple.refresh(scope || document);
+}
+
+function staggerList(container, selector) {
+  const m = motion();
+  if (m && container) m.stagger(container, selector);
+}
+
+// The item is cleared for a fresh reveal whenever the underlying data set is
+// replaced, so a new sync animates in while a filter change does not.
+function resetStagger(selectors) {
+  selectors.forEach((selector) => {
+    const node = $(selector);
+    if (node) delete node.dataset.motionStaggered;
+  });
+}
+
+// "Add to queue / add to playlist": the cover leaves the row it was clicked in
+// and arcs into the control that received it.
+function flyTo(target, source) {
+  const m = motion();
+  if (!m || !target || !source) return;
+  const from = source.getBoundingClientRect();
+  if (!from.width || !from.height) return;
+  m.fly({ from, to: target.getBoundingClientRect(), source, radius: 12 });
+}
+
+// Rejected input shakes the field group it belongs to, so the answer to "what is
+// wrong?" is spatial rather than only textual.
+function shakeField(node) {
+  const m = motion();
+  if (m && node) m.shake(node, { amplitude: 7 });
+}
+
+function setCount(node, value, format) {
+  const m = motion();
+  if (!node) return;
+  if (m) m.count(node, value, { format });
+  else node.textContent = format(value);
+}
+
+function setFadeText(node, value) {
+  const m = motion();
+  if (!node) return;
+  if (m) m.crossFadeText(node, value);
+  else node.textContent = value;
+}
+
 // The icon follows the kind of message now. A green check beside an error read as
 // "this worked", which was actively misleading.
 function showToast(message, kind = 'info') {
   $('#toastText').textContent = message;
   const toast = $('#toast');
-  toast.classList.remove('is-error', 'is-success');
+  toast.classList.remove('is-error', 'is-success', 'leaving');
   if (kind === 'error') toast.classList.add('is-error');
   if (kind === 'success') toast.classList.add('is-success');
   $('#toastIcon').innerHTML = `<use href="#i-${kind === 'error' ? 'shield' : 'check'}"/>`;
   toast.classList.add('show');
   clearTimeout(showToast.timer);
-  showToast.timer = setTimeout(() => toast.classList.remove('show'), 3200);
+  // The leave is slower than the arrive and uses the exit curve, so a toast
+  // settles out instead of blinking off.
+  showToast.timer = setTimeout(() => {
+    const m = motion();
+    if (m) m.leave(toast, { open: 'show' });
+    else toast.classList.remove('show');
+  }, 3200);
 }
 const showError = (message) => showToast(message, 'error');
 
@@ -152,6 +222,9 @@ function adoptLibrary(payload) {
   if (state.current >= 0) state.playingTrack = tracks[state.current];
   if (state.picked.size === 0 && Array.isArray(payload?.selected)) state.picked = new Set(payload.selected.map(String));
   if (payload?.artBase) state.artBase = payload.artBase;
+  // A replaced data set gets a fresh reveal; a filter change does not, which is
+  // why the one-shot flag is cleared here rather than on every render.
+  resetStagger(['#trackList', '#libraryList', '#channelGrid', '#channelGridLarge']);
   renderCollections(); renderFavorites(); renderPlaylists(); updatePlayer();
 }
 
@@ -214,6 +287,8 @@ function queueIdsSnapshot() {
 }
 function renderQueue() {
   $('#queueList').innerHTML = queueMarkup();
+  staggerList($('#queueList'), ':scope > .track-row');
+  refreshMotion($('#queueList'));
   // Until the saved queue has been read back once at boot, persisting would
   // overwrite the file with an empty list before the restore ever ran.
   if (state.queueRestored) window.tgPlayer?.player?.saveQueue?.(queueIdsSnapshot());
@@ -228,16 +303,27 @@ function renderCollections() {
   $('#trackList').innerHTML = tracks.length ? tracks.slice(0, 6).map((track, index) => trackTemplate(track, index)).join('') : emptyRow(NO_TRACKS);
   $('#libraryList').innerHTML = libraryMarkup();
   renderQueue();
-  $('#navLibraryCount').textContent = tracks.length;
+  // Counters roll rather than jump, so a sync that adds 200 tracks reads as a
+  // change instead of a different number that appeared while you looked away.
+  setCount($('#navLibraryCount'), tracks.length, (value) => String(Math.round(value)));
   $('#libraryLede').textContent = tracks.length ? `已从 Telegram 收集 ${tracks.length} 首。` : '还没有收集到任何内容。';
+  staggerList($('#channelGrid'), ':scope > .channel-card');
+  staggerList($('#channelGridLarge'), ':scope > .channel-card');
+  staggerList($('#trackList'), ':scope > .track-row');
+  staggerList($('#libraryList'), ':scope > .track-row');
   applySearchFilter();
+  // Scoped to the containers this function owns, rather than sweeping the whole
+  // document on every library repaint.
+  refreshMotion($('#pageWrap'));
 }
 
 function renderFavorites() {
   const list = [...state.favorites].filter(index => tracks[index]).map(index => trackTemplate(tracks[index], index)).join('');
   $('#favoritesList').innerHTML = list;
   $('#emptyFavorites').style.display = list ? 'none' : 'flex';
-  $('#favoriteCount').textContent = `已收藏 ${state.favorites.size} 首`;
+  setCount($('#favoriteCount'), state.favorites.size, (value) => `已收藏 ${Math.round(value)} 首`);
+  staggerList($('#favoritesList'), ':scope > .track-row');
+  refreshMotion($('#favoritesList'));
 }
 
 function applySearchFilter() {
@@ -281,6 +367,8 @@ function renderChatPicker() {
   const list = query ? state.chatList.filter(chat => `${chat.title} ${chat.username || ''}`.toLowerCase().includes(query)) : state.chatList;
   host.innerHTML = list.length ? list.map(chatRowTemplate).join('') : emptyRow('没有符合条件的聊天。');
   $('#pickerCount').textContent = `已选 ${state.picked.size} 个`;
+  staggerList(host, ':scope > .chat-row');
+  refreshMotion(host);
 }
 
 async function loadChatList() {
@@ -352,7 +440,9 @@ function renderPlaylists() {
   const grid = $('#playlistGrid');
   if (!grid) return;
   grid.innerHTML = state.playlists.length ? state.playlists.map(playlistCardTemplate).join('') : emptyRow('No playlists yet. Select tracks in your library, or press "新建播放列表".');
-  $('#navPlaylistCount').textContent = state.playlists.length;
+  setCount($('#navPlaylistCount'), state.playlists.length, (value) => String(Math.round(value)));
+  staggerList(grid, ':scope > .playlist-card');
+  refreshMotion(grid);
   const playlist = state.playlists.find(item => item.id === state.activePlaylist) || null;
   $('#playlistDetailHead').hidden = !playlist;
   if (!playlist) { $('#playlistTracks').innerHTML = ''; return; }
@@ -395,13 +485,19 @@ function openPlaylistPicker(mode = 'add', trackIds = null) {
     ? state.playlists.map(playlist => `<button class="popover-item" data-pick-playlist="${esc(playlist.id)}">${icon('plus')}<span>${esc(playlist.name)}</span><small>${playlist.trackIds.length}</small></button>`).join('')
     : (mode === 'add' ? `<p class="auth-note">还没有播放列表，在下面起个名字。</p>` : '');
   $('#playlistPickName').value = '';
+  $('#playlistBackdrop').classList.remove('leaving');
   $('#playlistBackdrop').classList.add('open');
   $('#playlistBackdrop').setAttribute('aria-hidden', 'false');
+  staggerList($('#playlistPickList'), ':scope > .popover-item');
+  refreshMotion($('#playlistPickList'));
   setTimeout(() => $('#playlistPickName')?.focus(), 100);
 }
 function closePlaylistPicker() {
-  $('#playlistBackdrop').classList.remove('open');
-  $('#playlistBackdrop').setAttribute('aria-hidden', 'true');
+  const backdrop = $('#playlistBackdrop');
+  const m = motion();
+  if (backdrop && m && backdrop.classList.contains('open')) m.leave(backdrop, { open: 'open' });
+  else if (backdrop) backdrop.classList.remove('open');
+  backdrop?.setAttribute('aria-hidden', 'true');
 }
 
 // The preload takes (id, trackIds) as two arguments and assembles the payload
@@ -409,12 +505,19 @@ function closePlaylistPicker() {
 // undefined, so nothing was ever added.
 async function addSelectionToPlaylist(playlistId) {
   const trackIds = state.playlistTarget.length ? [...state.playlistTarget] : [...state.selected];
+  const source = $('.track-row.is-picked .track-art') || $('#addToPlaylist');
   const result = await window.tgPlayer?.playlists?.addTracks?.(playlistId, trackIds);
   if (!result?.ok) return showError(playlistErrorMessage(result?.code));
   state.playlists = result.playlists || state.playlists;
   closePlaylistPicker();
   setSelectMode(false);
   renderPlaylists();
+  // The artwork lands on the card that received it, which is what makes the
+  // destination unambiguous when several playlists look alike.
+  if (result.added) {
+    const card = $(`.playlist-card[data-playlist="${CSS.escape(playlistId)}"]`);
+    flyTo(card, source);
+  }
   showToast(result.added ? `已添加 ${result.added} 首。` : '这些曲目已经在该播放列表里了。', 'success');
 }
 
@@ -514,11 +617,15 @@ async function deleteActivePlaylist() {
 function queueSelectedTracks() {
   const indices = [...state.selected].map(trackId => tracks.indexOf(trackById(trackId))).filter(index => index >= 0);
   if (!indices.length) return showError('请先选择曲目。');
+  // Captured before the list re-renders, because the row that owns the artwork
+  // is about to be rebuilt without its picked state.
+  const source = $('.track-row.is-picked .track-art') || $('#queueSelected');
   const added = indices.filter(index => !state.queue.includes(index));
   state.queue.push(...added);
   renderQueue();
   applySearchFilter();
   setSelectMode(false);
+  if (added.length) flyTo($('#queueButton'), source);
   showToast(added.length ? `已加入队列 ${added.length} 首。` : '这些曲目已经在队列里了。', 'success');
 }
 
@@ -538,7 +645,9 @@ function playlistErrorMessage(code) {
 function closeTrackMenu() {
   const menu = $('#trackMenu');
   if (!menu) return;
-  menu.classList.remove('open');
+  const m = motion();
+  if (m && menu.classList.contains('open')) m.leave(menu, { open: 'open' });
+  else menu.classList.remove('open');
   menu.setAttribute('aria-hidden', 'true');
   state.menuTrack = null;
 }
@@ -578,6 +687,8 @@ function openTrackMenu(index, context, x, y) {
   const top = Math.max(8, Math.min(y, window.innerHeight - box.height - 8));
   menu.style.left = `${left}px`;
   menu.style.top = `${top}px`;
+  staggerList(menu, ':scope > .popover-item');
+  refreshMotion(menu);
   menu.querySelector('[data-track-action]')?.focus();
 }
 
@@ -850,10 +961,12 @@ function paintPlayerArt(track) {
 
 function updatePlayer() {
   const track = currentTrack();
-  $('#playerTitle').textContent = track ? track.title : '未在播放';
-  $('#playerArtist').textContent = track ? `${track.artist} · ${track.channel}` : '同步 Telegram 音频即可开始';
-  $('#nowTitle').textContent = track ? track.title : '未在播放';
-  $('#nowArtist').textContent = track ? `${track.artist} · ${track.channel}` : '未选择曲目';
+  // A track change is a change: the old value lifts away and the new one rises
+  // in, instead of the string silently swapping under the cursor.
+  setFadeText($('#playerTitle'), track ? track.title : '未在播放');
+  setFadeText($('#playerArtist'), track ? `${track.artist} · ${track.channel}` : '同步 Telegram 音频即可开始');
+  setFadeText($('#nowTitle'), track ? track.title : '未在播放');
+  setFadeText($('#nowArtist'), track ? `${track.artist} · ${track.channel}` : '未选择曲目');
   $('#nowArtLabel').innerHTML = track ? track.channel.slice(0, 18) : 'TGPLAYER';
   $('#playIcon').innerHTML = state.playing ? icon('pause', 'icon-fill') : icon('play', 'icon-fill');
   $('#playButton').setAttribute('aria-label', state.playing ? 'Pause' : 'Play');
@@ -1062,6 +1175,55 @@ function toggleCurrentFavorite() {
 
 const settingsBridge = () => window.tgPlayer?.settings;
 
+// --- Tray appearance tokens ------------------------------------------------
+// The tray popup is a separate BrowserWindow and cannot reach this stylesheet,
+// so the resolved values are read once here and pushed through the main process,
+// which forwards them with each tray state. Reading them instead of restating
+// the palettes is what keeps the tray menu in step with a preset or accent
+// change: there is exactly one definition, in styles.css and motion.css.
+const TRAY_TOKENS = [
+  // Surfaces, text and lines.
+  '--surface', '--panel-strong', '--paper', '--paper-soft', '--paper-deep',
+  '--ink', '--muted', '--muted-light', '--line', '--line-strong',
+  // Accent family and status colours.
+  '--accent', '--accent-dark', '--accent-wash', '--on-accent',
+  '--danger', '--green', '--blue',
+  // Type and geometry, so the popup cannot drift from the app's metrics.
+  '--font-heading', '--font-body', '--radius-card', '--radius-control',
+  // Timing and curves, so the popup animates on the same tokens.
+  '--motion-instant', '--motion-fast', '--motion-normal', '--motion-slow',
+  '--motion-exit', '--motion-ambient', '--motion-glare', '--motion-ripple',
+  '--motion-stagger',
+  '--ease-slide', '--ease-enter', '--ease-fade', '--ease-exit',
+  '--ease-bounce', '--ease-breath',
+];
+
+function collectTrayTokens() {
+  // body, not documentElement: the presets and the dark palette are declared on
+  // body[data-preset] / body:not(.light-mode), so the resolved values only exist
+  // on body's computed style. The :root tokens inherit into it either way.
+  const styles = getComputedStyle(document.body);
+  const tokens = {};
+  TRAY_TOKENS.forEach((name) => {
+    const value = styles.getPropertyValue(name).trim();
+    if (value) tokens[name] = value;
+  });
+  return tokens;
+}
+
+function reportTrayTokens() {
+  try {
+    const tokens = collectTrayTokens();
+    // The theme is applied on every settings patch and on every system theme
+    // change, and most of those do not alter the resolved values. Comparing a
+    // signature first keeps an idle app from sending IPC on every repaint.
+    const signature = JSON.stringify(tokens);
+    if (signature === reportTrayTokens.last) return;
+    reportTrayTokens.last = signature;
+    window.tgPlayer?.appearance?.report?.(tokens);
+  } catch {}
+}
+
 // 'system' has to resolve to a real value here rather than in CSS, because the
 // stylesheet keys dark mode off body:not(.light-mode) and knows nothing about
 // what Windows is set to.
@@ -1086,6 +1248,11 @@ function applyAppearance() {
   document.body.dataset.accent = config.accent || 'blue';
   document.body.classList.toggle('reduce-motion', Boolean(config.reduceMotion));
   publishPlaybackState();
+  // After the class and data attributes above have landed, so the values read
+  // back are the ones actually in effect. The motion runtime caches tokens and
+  // would otherwise keep animating on the previous theme's timings.
+  window.TGMotion?.invalidateTokens?.();
+  reportTrayTokens();
 }
 
 async function loadSettings() {
@@ -1209,6 +1376,12 @@ async function refreshCacheStats() {
     $('#cacheAudioCount').textContent = `${result.media.files} 首`;
     $('#cacheArtSize').textContent = formatBytes(result.art.bytes);
     $('#cacheArtCount').textContent = `${result.art.files} 张`;
+    // Rolled rather than assigned, so clearing the cache reads as a number
+    // falling instead of a number being replaced.
+    setCount($('#cacheAudioSize'), result.media.bytes, (value) => formatBytes(Math.round(value)));
+    setCount($('#cacheAudioCount'), result.media.files, (value) => `${Math.round(value)} 首`);
+    setCount($('#cacheArtSize'), result.art.bytes, (value) => formatBytes(Math.round(value)));
+    setCount($('#cacheArtCount'), result.art.files, (value) => `${Math.round(value)} 张`);
     if (result.folder) $('#dataFolderPath').textContent = result.folder;
   } catch {}
 }
@@ -1288,7 +1461,19 @@ function setPage(page) {
     item.classList.toggle('active', active);
     item.toggleAttribute('aria-current', active);
   });
-  $$('.page').forEach(item => item.classList.toggle('active', item.dataset.pageContent === page));
+  // Both elements are needed: the incoming page rises into place while the
+  // outgoing one lifts out, so the outgoing element has to be captured before
+  // the active class moves.
+  const pages = $$('.page');
+  const outgoing = pages.find(item => item.classList.contains('active')) || null;
+  const incoming = pages.find(item => item.dataset.pageContent === page) || null;
+  const wrap = $('#pageWrap');
+  // Reset before the transition so the leaving page overlays the same scroll
+  // offset the arriving page starts at, instead of floating against a stale one.
+  if (wrap) wrap.scrollTop = 0;
+  const m = motion();
+  if (m && incoming && incoming !== outgoing) m.pageTransition(outgoing, incoming);
+  else pages.forEach(item => item.classList.toggle('active', item === incoming));
   $('#pageCrumb').textContent = ({ home: 'Home', channels: 'Telegram 聊天', library: 'Library', playlists: 'Playlists', queue: 'Queue', favorites: 'Favorites', settings: 'Settings' })[page] || 'Home';
   if (page === 'favorites') renderFavorites();
   if (page === 'playlists') renderPlaylists();
@@ -1306,7 +1491,13 @@ function setPage(page) {
   if (page === 'channels' && state.connected && !state.chatList.length && !state.loadingChats) loadChatList();
 }
 
-function closePopover() { $('#devicePopover').classList.remove('open'); $('#deviceButton').setAttribute('aria-expanded', 'false'); }
+function closePopover() {
+  const popover = $('#devicePopover');
+  const m = motion();
+  if (popover && m && popover.classList.contains('open')) m.leave(popover, { open: 'open' });
+  else if (popover) popover.classList.remove('open');
+  $('#deviceButton').setAttribute('aria-expanded', 'false');
+}
 
 // Real output switching via setSinkId. Chromium hides device labels until audio
 // permission is granted, so unnamed outputs get a positional fallback label.
@@ -1327,6 +1518,8 @@ async function openDevicePopover() {
   }));
   popover.classList.add('open');
   $('#deviceButton').setAttribute('aria-expanded', 'true');
+  staggerList(popover, ':scope > .popover-item');
+  refreshMotion(popover);
 }
 
 // GramJS talks raw MTProto over TCP, so it ignores the Windows system proxy and
@@ -1371,8 +1564,14 @@ function authView() {
   bindAuth();
 }
 
-function openModal() { state.authStep = 'credentials'; state.proxyOpen = false; $('#modalBackdrop').classList.add('open'); $('#modalBackdrop').setAttribute('aria-hidden', 'false'); authView(); loadProxyConfig(); setTimeout(() => $('#authContinue')?.focus(), 100); }
-function closeModal() { $('#modalBackdrop').classList.remove('open'); $('#modalBackdrop').setAttribute('aria-hidden', 'true'); }
+function openModal() { state.authStep = 'credentials'; state.proxyOpen = false; $('#modalBackdrop').classList.remove('leaving'); $('#modalBackdrop').classList.add('open'); $('#modalBackdrop').setAttribute('aria-hidden', 'false'); authView(); loadProxyConfig(); setTimeout(() => $('#authContinue')?.focus(), 100); }
+function closeModal() {
+  const backdrop = $('#modalBackdrop');
+  const m = motion();
+  if (backdrop && m && backdrop.classList.contains('open')) m.leave(backdrop, { open: 'open' });
+  else if (backdrop) backdrop.classList.remove('open');
+  backdrop?.setAttribute('aria-hidden', 'true');
+}
 
 function connectErrorMessage(code) {
   const value = String(code || '');
@@ -1452,9 +1651,9 @@ async function bindAuth() {
     state.authStep = 'phone'; authView();
   });
   $('#authBack')?.addEventListener('click', () => { state.authStep = state.authStep === 'password' ? 'code' : state.authStep === 'code' ? 'phone' : 'credentials'; authView(); });
-  $('#sendCode')?.addEventListener('click', async () => { state.phone = $('#phoneNumber').value.trim(); if (!state.phone) return showToast('请输入手机号'); const result = bridge() ? await bridge().sendPhone(state.phone) : { ok: false, code: 'NO_BRIDGE' }; if (!result.ok) return showToast(connectErrorMessage(result.code)); state.authStep = 'code'; authView(); setTimeout(() => $('#loginCode')?.focus(), 100); });
-  $('#verifyCode')?.addEventListener('click', async () => { const value = $('#loginCode').value.trim(); if (!value) return showToast('请输入登录验证码'); const result = bridge() ? await bridge().verifyCode(value) : { ok: false, code: 'NO_BRIDGE' }; if (!result.ok) return showToast(connectErrorMessage(result.code)); if (result.needsPassword) { state.authStep = 'password'; authView(); setTimeout(() => $('#loginPassword')?.focus(), 100); } else await finishConnection(); });
-  $('#verifyPassword')?.addEventListener('click', async () => { const value = $('#loginPassword').value; if (!value) return showToast('请输入两步验证密码'); const result = bridge() ? await bridge().verifyPassword(value) : { ok: false, code: 'NO_BRIDGE' }; if (!result.ok) return showToast(connectErrorMessage(result.code)); await finishConnection(); });
+  $('#sendCode')?.addEventListener('click', async () => { state.phone = $('#phoneNumber').value.trim(); if (!state.phone) { shakeField($('#phoneNumber')); return showToast('请输入手机号'); } const result = bridge() ? await bridge().sendPhone(state.phone) : { ok: false, code: 'NO_BRIDGE' }; if (!result.ok) { shakeField($('#phoneNumber')); return showToast(connectErrorMessage(result.code)); } state.authStep = 'code'; authView(); setTimeout(() => $('#loginCode')?.focus(), 100); });
+  $('#verifyCode')?.addEventListener('click', async () => { const value = $('#loginCode').value.trim(); if (!value) { shakeField($('#loginCode')); return showToast('请输入登录验证码'); } const result = bridge() ? await bridge().verifyCode(value) : { ok: false, code: 'NO_BRIDGE' }; if (!result.ok) { shakeField($('#loginCode')); return showToast(connectErrorMessage(result.code)); } if (result.needsPassword) { state.authStep = 'password'; authView(); setTimeout(() => $('#loginPassword')?.focus(), 100); } else await finishConnection(); });
+  $('#verifyPassword')?.addEventListener('click', async () => { const value = $('#loginPassword').value; if (!value) { shakeField($('#loginPassword')); return showToast('请输入两步验证密码'); } const result = bridge() ? await bridge().verifyPassword(value) : { ok: false, code: 'NO_BRIDGE' }; if (!result.ok) { shakeField($('#loginPassword')); return showToast(connectErrorMessage(result.code)); } await finishConnection(); });
 }
 
 async function finishConnection() {
@@ -1580,6 +1779,14 @@ async function syncLibrary(mode = 'full', quiet = false) {
 }
 
 function bindGlobal() {
+  // A hidden window keeps costing GPU time for every infinite animation on screen.
+  // Suspending them here covers the tray case explicitly instead of trusting the
+  // platform to throttle a minimised window.
+  const syncPausedState = () => {
+    document.body.classList.toggle('is-paused', document.hidden);
+  };
+  document.addEventListener('visibilitychange', syncPausedState);
+  syncPausedState();
   $$('.nav-item').forEach(item => item.addEventListener('click', () => setPage(item.dataset.page)));
   $$('[data-page-link]').forEach(button => button.addEventListener('click', () => setPage(button.dataset.pageLink)));
   // The sidebar gear used to reopen the connection modal, which is not what a
@@ -1772,6 +1979,10 @@ async function boot() {
   // below rebuilds both from these ids and must not run before they exist.
   await Promise.all([loadSettings(), loadSavedSessionData()]);
   applyVolume(); bindDelegatedEvents(); bindGlobal(); bindSettings(); bindAudio(); bindPlayerCommands();
+  // First pass over the markup that shipped in index.html: the rail, the
+  // transport controls and the hero actions all need their press ink now, not
+  // only after the first list render.
+  refreshMotion();
   // Restoring a saved session now happens in the background, so the main process
   // pushes this once it settles. Without it the UI would sit on "not connected".
   bridge_onStatusChanged();

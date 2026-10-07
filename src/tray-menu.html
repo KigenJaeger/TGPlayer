@@ -1,68 +1,401 @@
 <!doctype html>
 <html lang="zh-CN">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>TGPlayer</title>
-  <style>
-    :root { color-scheme: light; font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif; }
-    * { box-sizing: border-box; }
-    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; }
-    body { padding: 8px; color: #17232d; }
-    .menu { width: 276px; padding: 8px; border: 1px solid rgba(54, 71, 86, .09); border-radius: 24px; background: #f8faff; box-shadow: 0 3px 6px rgba(42, 57, 72, .12), 0 12px 28px rgba(42, 57, 72, .18); transform-origin: bottom right; animation: menu-in .2s cubic-bezier(.2, .8, .2, 1); }
-    .now-playing { display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 8px 10px 11px; }
-    .art { width: 42px; height: 42px; display: grid; place-items: center; flex: none; overflow: hidden; border-radius: 15px; background: linear-gradient(145deg, #d5e9ff, #e6e5ff); color: #2c77bd; box-shadow: inset 0 1px rgba(255,255,255,.7); }
-    .art svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-    .art.playing svg { animation: pulse 1.7s cubic-bezier(.35, 0, .4, 1) infinite; }
-    .copy { min-width: 0; flex: 1; }
-    .eyebrow { color: #627483; font-size: 10px; font-weight: 700; letter-spacing: .09em; }
-    .status { margin-top: 3px; overflow: hidden; color: #25333e; font-size: 12px; font-weight: 600; line-height: 1.25; white-space: nowrap; text-overflow: ellipsis; }
-    .group { margin-top: 2px; padding-top: 5px; border-top: 1px solid #e4e9ee; }
-    button { width: 100%; min-height: 44px; display: flex; align-items: center; gap: 14px; padding: 0 12px; border: 0; border-radius: 14px; background: transparent; color: inherit; font: 600 13px "Segoe UI", "Microsoft YaHei UI", sans-serif; letter-spacing: .01em; text-align: left; cursor: pointer; transition: background-color .16s ease, color .16s ease, transform .16s cubic-bezier(.2, .8, .2, 1); }
-    button svg { width: 20px; height: 20px; flex: none; fill: none; stroke: #536775; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: stroke .16s ease, transform .18s cubic-bezier(.2, .8, .2, 1); }
-    button:hover, button:focus-visible { outline: 0; background: #dceeff; color: #155f9f; } button:hover svg, button:focus-visible svg { stroke: currentColor; transform: scale(1.06); }
-    button:active { background: #cbe5fb; transform: scale(.985); }
-    .danger { color: #b3261e; } .danger svg { stroke: currentColor; } .danger:hover, .danger:focus-visible { background: #ffdad6; color: #8c1d18; }
-    body.dark { color-scheme: dark; color: #e9f1f8; } body.dark .menu { border-color: rgba(211, 228, 242, .12); background: #1c262f; box-shadow: 0 3px 7px rgba(0,0,0,.26), 0 12px 28px rgba(0,0,0,.4); } body.dark .art { background: linear-gradient(145deg, #214966, #38345f); color: #a8d4ff; box-shadow: none; } body.dark .eyebrow { color: #b4c3cf; } body.dark .status { color: #edf5fb; } body.dark .group { border-color: rgba(221, 235, 246, .11); } body.dark button svg { stroke: #bacbd7; } body.dark button:hover, body.dark button:focus-visible { background: #29465c; color: #a8d4ff; } body.dark button:active { background: #35566e; } body.dark .danger:hover, body.dark .danger:focus-visible { background: #5c383a; color: #ffb4ab; }
-    @keyframes menu-in { from { opacity: 0; transform: scale(.96) translateY(5px); } to { opacity: 1; transform: none; } } @keyframes pulse { 50% { transform: scale(1.13); opacity: .7; } }
-    @media (prefers-reduced-motion: reduce) { .menu, .art.playing svg { animation: none; } button, button svg { transition: none; } }
-  </style>
-</head>
-<body>
-  <div class="menu" role="menu" aria-label="TGPlayer 托盘菜单">
-    <div class="now-playing"><div class="art" id="pulse"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V6l10-2v12"/><path d="M9 9l10-2"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg></div><div class="copy"><div class="eyebrow" id="eyebrow">TGPLAYER</div><div class="status" id="status">TGPlayer</div></div></div>
-    <button type="button" data-command="show" role="menuitem"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.5 12 5l8 6.5V20a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z"/></svg>显示主窗口</button>
-    <div class="group">
-      <button type="button" id="toggle" data-command="toggle" role="menuitem"><svg viewBox="0 0 24 24" aria-hidden="true"><path id="toggleIcon" d="M8 5v14l11-7z"/></svg><span id="toggleLabel">继续播放</span></button>
-      <button type="button" data-command="next" role="menuitem"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 5 9 7-9 7zM18 5v14"/></svg>下一首</button>
-      <button type="button" data-command="previous" role="menuitem"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m18 5-9 7 9 7zM6 5v14"/></svg>上一首</button>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TGPlayer</title>
+    <style>
+      /* The tray menu is its own window, so it cannot inherit the app's
+         stylesheet. It is painted from the design tokens the sign-in window
+         reports over IPC, which means a preset or accent change reaches this
+         menu too, and there is no second palette to keep in step by hand.
+
+         The values below are only fallbacks for the very first paint, before the
+         first report lands, and for a report that arrives incomplete. They mirror
+         the Cool Blue light preset. Everything the menu draws references a token,
+         so once the report arrives the whole surface is repainted. */
+      :root {
+        --surface: #fbfcfe; --panel-strong: rgba(255,254,250,.94);
+        --paper: #f4f7fb; --paper-soft: #e9eff6; --paper-deep: #dae4ee;
+        --ink: #131a21; --muted: #4c5a67; --muted-light: #78868f;
+        --line: rgba(19, 26, 33, .10); --line-strong: rgba(19, 26, 33, .17);
+        --accent: #4a7ba8; --accent-dark: #35618a; --accent-wash: #dfeaf5;
+        --on-accent: #fff; --danger: #a94f4f; --green: #5d8c86; --blue: #6a9bcc;
+        --font-heading: "Poppins", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans SC", "Hiragino Sans GB", Arial, sans-serif;
+        --font-body: "Lora", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans SC", Georgia, serif;
+        --radius-card: 18px; --radius-control: 12px;
+        --motion-instant: 100ms; --motion-fast: 150ms; --motion-normal: 200ms;
+        --motion-slow: 320ms; --motion-exit: 600ms; --motion-ambient: 800ms;
+        --motion-glare: 700ms; --motion-ripple: 200ms; --motion-stagger: 24ms;
+        --ease-slide: cubic-bezier(.075,.82,.165,1);
+        --ease-enter: cubic-bezier(.23,1,.32,1);
+        --ease-fade: cubic-bezier(.215,.61,.355,1);
+        --ease-exit: cubic-bezier(.55,.055,.675,.19);
+        --ease-bounce: cubic-bezier(.34,1.56,.64,1);
+        --ease-breath: cubic-bezier(.445,.05,.55,.95);
+      }
+
+      * { box-sizing: border-box; }
+      html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; }
+      /* No padding: the window is sized to the panel exactly.
+         A margin here would only exist to host a drop shadow, and an outer shadow
+         is exactly what produced the translucent dark ring around the menu. The
+         app forces software rendering, so a CSS shadow that spreads past the
+         panel cannot blend into the desktop and instead composites as a visible
+         edge. Depth comes from the hairline border, an inner highlight, and the
+         operating system's own shadow outside the window. */
+      body { padding: 0; color: var(--ink); font-family: var(--font-body); }
+
+      .menu {
+        width: 268px;
+        padding: 6px;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--radius-card);
+        background: var(--surface);
+        /* Inset highlight instead of an outer shadow: it reads as a lit top edge
+           and costs nothing outside the box. */
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, .45);
+        /* Set per open from the reported anchor, so the panel grows out of the
+           tray icon wherever the taskbar happens to be. */
+        transform-origin: bottom right;
+      }
+
+      /* Now-playing header: the one piece of live information in the menu. */
+      .now { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 7px 10px 9px; }
+      .art {
+        width: 38px; height: 38px; flex: none; display: grid; place-items: center;
+        border-radius: var(--radius-control);
+        background: var(--accent-wash); color: var(--accent);
+        border: 1px solid var(--line);
+      }
+      .art svg { width: 19px; height: 19px; }
+      /* A slow breath reads as "playing" without becoming a spinner. */
+      .art.playing svg { animation: breath var(--motion-ambient) var(--ease-breath) infinite; transform-origin: 50% 50%; }
+      .copy { min-width: 0; flex: 1; }
+      .eyebrow { color: var(--muted-light); font: 700 9px var(--font-heading); letter-spacing: .13em; }
+      .status { margin-top: 4px; overflow: hidden; color: var(--ink); font: 600 12px var(--font-heading); letter-spacing: -.02em; white-space: nowrap; text-overflow: ellipsis; }
+
+      /* Separators match .menu-separator in the app's context menu. */
+      .sep { height: 1px; margin: 4px 6px; background: var(--line); }
+
+      /* Rows match .popover-item in the app: same height, padding, radius, type
+         and icon colour, so the tray menu reads as the same control. */
+      button {
+        width: 100%; min-height: 34px; padding: 0 10px;
+        display: flex; align-items: center; gap: 8px;
+        border: 0; border-radius: 10px; background: transparent;
+        color: var(--ink); font: 500 12px var(--font-heading); text-align: left;
+        cursor: pointer;
+        transition: background-color var(--motion-fast) var(--ease-fade), color var(--motion-fast) var(--ease-fade);
+      }
+      button svg {
+        width: 15px; height: 15px; flex: none; color: var(--accent);
+        fill: none; stroke: currentColor; stroke-width: 2.2;
+        stroke-linecap: round; stroke-linejoin: round;
+        transition: color var(--motion-fast) var(--ease-fade);
+      }
+      button:hover, button:focus-visible { outline: 0; background: var(--paper-soft); }
+      button:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+      button:active { background: var(--paper-deep); }
+      .danger, .danger svg { color: var(--danger); }
+      /* Same treatment as .popover-item.is-danger:hover, which uses the accent
+         wash rather than a red tint so a destructive row does not shout. */
+      .danger:hover, .danger:focus-visible { background: var(--accent-wash); }
+
+      @keyframes breath { 50% { transform: scale(1.12); opacity: .62; } }
+
+      /* Ripple primitives. These mirror the same three rules in motion.css, which
+         this window cannot load because it is a separate document; only the small
+         set actually used here is repeated. `motion-ripple` is the ink's own
+         expansion and is referenced by the class motion.js creates. */
+      .ripple-host { overflow: hidden; }
+      .ripple-host-position { position: relative; }
+      .ripple-ink {
+        position: absolute;
+        border-radius: 50%;
+        background: currentColor;
+        opacity: .26;
+        pointer-events: none;
+        transform: scale(0);
+        will-change: transform, opacity;
+        animation: motion-ripple var(--motion-ripple) var(--ease-slide) forwards;
+      }
+      @keyframes motion-ripple {
+        from { transform: scale(0); opacity: .26; }
+        to { transform: scale(1); opacity: 0; }
+      }
+
+      /* The popup is revealed by TGMotion so it can use the exact entrance curve
+         and the reported anchor; it starts hidden so nothing flashes before the
+         size and palette are known. */
+      .menu { opacity: 0; }
+      .menu.revealed { opacity: 1; }
+
+      @media (prefers-reduced-motion: reduce) {
+        .menu { opacity: 1; }
+        .art.playing svg { animation: none; }
+        .ripple-ink { animation: none; opacity: 0; }
+        button, button svg { transition: none; }
+      }
+      /* The in-app switch, pushed down with the state. */
+      body.reduce-motion .menu { opacity: 1; }
+      body.reduce-motion .art.playing svg { animation: none; }
+      body.reduce-motion .ripple-ink { animation: none; opacity: 0; }
+      /* Same reasoning as the main window: a hidden popup should not keep a
+         perpetual animation ticking. */
+      body.is-paused *, body.is-paused *::before, body.is-paused *::after { animation-play-state: paused !important; }
+    </style>
+  </head>
+  <body>
+    <div class="menu" id="menu" role="menu" aria-label="TGPlayer 托盘菜单">
+      <div class="now">
+        <div class="art" id="art">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V6l10-2v12"/><path d="M9 9l10-2"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg>
+        </div>
+        <div class="copy">
+          <div class="eyebrow" id="eyebrow">TGPLAYER</div>
+          <div class="status" id="status">当前没有播放</div>
+        </div>
+      </div>
+      <div class="sep"></div>
+      <div id="rows">
+        <button type="button" data-command="show" role="menuitem">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.5 12 5l8 6.5V20a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z"/></svg>
+          <span>显示主窗口</span>
+        </button>
+        <button type="button" id="toggle" data-command="toggle" role="menuitem">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path id="toggleIcon" d="M8 5v14l11-7z"/></svg>
+          <span id="toggleLabel">继续播放</span>
+        </button>
+        <button type="button" data-command="next" role="menuitem">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 5 9 7-9 7zM18 5v14"/></svg>
+          <span>下一首</span>
+        </button>
+        <button type="button" data-command="previous" role="menuitem">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m18 5-9 7 9 7zM6 5v14"/></svg>
+          <span>上一首</span>
+        </button>
+      </div>
+      <div class="sep"></div>
+      <button type="button" class="danger" data-command="quit" role="menuitem">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v9"/><path d="M7.05 5.93A8 8 0 1 0 16.95 5.93"/></svg>
+        <span>退出 TGPlayer</span>
+      </button>
     </div>
-    <div class="group">
-      <button type="button" class="danger" data-command="quit" role="menuitem"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v9"/><path d="M7.05 5.93A8 8 0 1 0 16.95 5.93"/></svg>退出 TGPlayer</button>
-    </div>
-  </div>
-  <script>
-    const api = window.tgPlayer?.trayMenu;
-    const status = document.getElementById('status');
-    const toggle = document.getElementById('toggle');
-    const pulse = document.getElementById('pulse');
-    const eyebrow = document.getElementById('eyebrow');
-    const toggleIcon = document.getElementById('toggleIcon');
-    const toggleLabel = document.getElementById('toggleLabel');
-    function applyState(next = {}) {
-      const title = String(next.title || '').trim();
-      document.body.classList.toggle('dark', Boolean(next.dark));
-      pulse.classList.toggle('playing', Boolean(next.playing));
-      toggleIcon.setAttribute('d', next.playing ? 'M8 5v14M16 5v14' : 'M8 5v14l11-7z');
-      eyebrow.textContent = title ? (next.playing ? '正在播放' : '已暂停') : 'TGPLAYER';
-      status.textContent = title || '当前没有播放';
-      toggleLabel.textContent = next.playing ? '暂停播放' : '继续播放';
-    }
-    document.querySelectorAll('[data-command]').forEach(button => button.addEventListener('click', () => api?.command(button.dataset.command)));
-    document.addEventListener('keydown', event => { if (event.key === 'Escape') api?.command('dismiss'); });
-    api?.state?.().then(applyState).catch(() => {});
-    api?.onState(applyState);
-    api?.ready();
-  </script>
-</body>
+
+    <script src="./motion.js"></script>
+    <script>
+      (function () {
+        'use strict';
+
+        const api = window.tgPlayer?.trayMenu;
+        const motion = window.TGMotion;
+        const menu = document.getElementById('menu');
+        const art = document.getElementById('art');
+        const eyebrow = document.getElementById('eyebrow');
+        const status = document.getElementById('status');
+        const toggleIcon = document.getElementById('toggleIcon');
+        const toggleLabel = document.getElementById('toggleLabel');
+        const rows = document.getElementById('rows');
+
+        let revealed = false;
+        let leaving = false;
+        let reported = false;
+        let anchor = { x: 'right', y: 'bottom' };
+
+        // Tokens arrive as a map of custom-property names to resolved values and
+        // are written straight onto the root element, so every rule above picks
+        // them up without a second definition anywhere.
+        function applyTokens(tokens) {
+          if (!tokens) return;
+          const root = document.documentElement;
+          Object.keys(tokens).forEach((name) => {
+            if (name.indexOf('--') !== 0) return;
+            root.style.setProperty(name, tokens[name]);
+          });
+        }
+
+        function applyState(next) {
+          const state = next || {};
+          applyTokens(state.tokens);
+          document.body.classList.toggle('reduce-motion', Boolean(state.reduceMotion));
+          if (state.anchor && (state.anchor.x || state.anchor.y)) {
+            anchor = { x: state.anchor.x || 'right', y: state.anchor.y || 'bottom' };
+          }
+
+          const title = String(state.title || '').trim();
+          const playing = Boolean(state.playing);
+          art.classList.toggle('playing', playing);
+          toggleIcon.setAttribute('d', playing ? 'M8 5v14M16 5v14' : 'M8 5v14l11-7z');
+          eyebrow.textContent = title ? (playing ? '正在播放' : '已暂停') : 'TGPLAYER';
+          status.textContent = title || '当前没有播放';
+          toggleLabel.textContent = playing ? '暂停播放' : '继续播放';
+
+          if (!revealed) reveal();
+        }
+        // The entrance is played once, from the reported anchor, on the app's own
+        // entrance curve. It runs after the tokens land so the first visible frame
+        // is already the right colour and geometry.
+        //
+        // Rows are attached to ripple and staggered through TGMotion rather than
+        // through the stylesheet: this window does not load the app's stylesheet,
+        // so the app's ripple selector would not match these plain buttons and its
+        // .motion-item keyframes do not exist here.
+        function reveal() {
+          revealed = true;
+          const originX = anchor.x === 'left' ? 'left' : 'right';
+          const originY = anchor.y === 'top' ? 'top' : 'bottom';
+          menu.style.transformOrigin = originX + ' ' + originY;
+
+          // Every command row, including the destructive one that sits outside
+          // #rows, so no row is left without press feedback or a place in the wave.
+          const rowEls = [...menu.querySelectorAll('[data-command]')];
+          const finish = () => {
+            menu.classList.add('revealed');
+            if (motion) {
+              rowEls.forEach((row) => motion.ripple.attach(row));
+            }
+          };
+
+          if (!motion || motion.reduced()) {
+            finish();
+            return;
+          }
+
+          // Growing out of the anchor without scaling: the panel is revealed by an
+          // animated clip that opens from the corner nearest the tray icon, with a
+          // short displacement along the same diagonal. Scaling the panel would
+          // be the obvious move, but it stretches the glyphs for the length of the
+          // animation, which is exactly what makes a menu look cheap.
+          const top = anchor.y === 'top' ? 100 : 0;
+          const bottom = anchor.y === 'bottom' ? 100 : 0;
+          const left = anchor.x === 'left' ? 100 : 0;
+          const right = anchor.x === 'right' ? 100 : 0;
+          const shiftX = anchor.x === 'left' ? -3 : 3;
+          const shiftY = anchor.y === 'top' ? -4 : 4;
+
+          finish();
+          motion.tween({
+            from: 0,
+            to: 1,
+            duration: motion.tokenMs('--motion-normal', 200),
+            ease: motion.ease.outQuint,
+            onUpdate: (t) => {
+              const inset = 1 - t;
+              menu.style.clipPath = 'inset(' + (top * inset).toFixed(2) + '% '
+                + (right * inset).toFixed(2) + '% '
+                + (bottom * inset).toFixed(2) + '% '
+                + (left * inset).toFixed(2) + '%)';
+              menu.style.opacity = String(Math.min(1, t * 1.6));
+              menu.style.transform = 'translate(' + (shiftX * inset).toFixed(2) + 'px,'
+                + (shiftY * inset).toFixed(2) + 'px)';
+            },
+            onDone: () => {
+              menu.style.clipPath = '';
+              menu.style.transform = '';
+              menu.style.opacity = '';
+            },
+          });
+        }
+
+        // The menu animates out on the exit curve before the command is sent, so
+        // dismissing it settles instead of blinking away. Blur-driven closes are
+        // handled by the main process and stay immediate, because that is the
+        // user clicking somewhere else entirely.
+        function dismiss(command) {
+          if (leaving) return;
+          leaving = true;
+          const finish = () => api?.command(command);
+          if (!motion || motion.reduced()) return finish();
+
+          // Closing collapses back toward the anchor on the exit curve, so it
+          // retracts the way it opened instead of blinking off.
+          const top = anchor.y === 'top' ? 100 : 0;
+          const bottom = anchor.y === 'bottom' ? 100 : 0;
+          const left = anchor.x === 'left' ? 100 : 0;
+          const right = anchor.x === 'right' ? 100 : 0;
+          motion.tween({
+            from: 0,
+            to: 1,
+            duration: motion.tokenMs('--motion-fast', 150),
+            ease: motion.ease.inCubic,
+            onUpdate: (t) => {
+              menu.style.clipPath = 'inset(' + (top * t).toFixed(2) + '% '
+                + (right * t).toFixed(2) + '% '
+                + (bottom * t).toFixed(2) + '% '
+                + (left * t).toFixed(2) + '%)';
+              menu.style.opacity = String(1 - t);
+            },
+            onDone: finish,
+          });
+        }
+
+        document.querySelectorAll('[data-command]').forEach((button) => {
+          button.addEventListener('click', () => dismiss(button.dataset.command));
+        });
+        document.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape') dismiss('dismiss');
+        });
+
+        // The main process sizes the window to this before showing it, so a row
+        // height or font change can never clip the menu. Measured after the tokens
+        // and the webfont have settled, because both change the height -- which is
+        // why it waits for the first state instead of firing on load.
+        function reportSizeOnce() {
+          if (reported) return;
+          reported = true;
+          try {
+            const rect = menu.getBoundingClientRect();
+            // The window is sized to the panel with no surrounding margin, so the
+            // measurement is the panel itself. Rounding up keeps a device pixel
+            // from being clipped off the bottom-right corner.
+            api?.sized?.({
+              width: Math.ceil(rect.right),
+              height: Math.ceil(rect.bottom),
+            });
+          } catch (error) {}
+        }
+
+        function measureThenReport() {
+          const settle = () => requestAnimationFrame(() => requestAnimationFrame(reportSizeOnce));
+          if (document.fonts && document.fonts.ready) {
+            document.fonts.ready.then(settle).catch(settle);
+          } else {
+            settle();
+          }
+        }
+
+        api?.ready?.();
+        // The popup is short-lived, but it can still be hidden while open.
+        const syncPausedState = () => {
+          document.body.classList.toggle('is-paused', document.hidden);
+        };
+        document.addEventListener('visibilitychange', syncPausedState);
+        syncPausedState();
+        api?.onState?.((state) => {
+          applyState(state);
+          measureThenReport();
+        });
+        // Guarded rather than chained: `api?.state?.()` yields undefined when the
+        // bridge is absent (a plain browser, for instance), and calling .then on
+        // that would throw before the menu ever painted.
+        const initial = api?.state?.();
+        if (initial && typeof initial.then === 'function') {
+          initial.then((state) => {
+            applyState(state);
+            measureThenReport();
+          }).catch(() => {
+            applyState({});
+            measureThenReport();
+          });
+        } else {
+          applyState({});
+          measureThenReport();
+        }
+        // Last resort: if no state ever arrives the menu must still be sized, or
+        // the main process would fall back to showing it at the reference size.
+        setTimeout(measureThenReport, 400);
+      })();
+    </script>
+  </body>
 </html>

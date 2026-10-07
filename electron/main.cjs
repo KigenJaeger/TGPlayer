@@ -1769,6 +1769,16 @@ const APP_ICON = path.join(__dirname, '..', 'assets', 'icon.png');
 // tray sends commands down, which keeps one source of truth for playback.
 let tray = null;
 let trayPopup = null;
+// Reference popup size, used until the popup reports what it actually measured
+// and as the fallback if that report never arrives.
+const TRAY_POPUP_FALLBACK = { width: 292, height: 300 };
+let trayPopupSized = false;
+let trayPopupFallback = null;
+let trayPopupPendingPoint = null;
+// Resolved design tokens, reported by the sign-in window whenever the look
+// changes. Null until the first report, which is why the popup ships fallbacks.
+let trayTokens = null;
+let trayAnchor = { x: 'right', y: 'bottom' };
 let isQuitting = false;
 function trayUsesDarkTheme() {
   return DARK_ONLY_PRESETS.includes(settings.preset)
@@ -1835,6 +1845,10 @@ function sendPlayerCommand(command) {
 }
 
 function closeTrayPopup() {
+  clearTimeout(trayPopupFallback);
+  trayPopupFallback = null;
+  trayPopupSized = false;
+  trayPopupPendingPoint = null;
   // The popup is a short-lived interaction surface. Destroying it on dismiss
   // releases its renderer and DOM caches instead of leaving a second Chromium
   // window resident while the app is only playing audio in the tray.
@@ -1847,34 +1861,106 @@ function trayPopupState() {
 }
 
 function trayState() {
-  return { ...playback, dark: trayUsesDarkTheme() };
+  // `tokens` is the resolved design-token map reported by the sign-in window;
+  // `anchor` is which corner of the menu sits closest to the pointer, so the
+  // popup can grow out of the tray icon the way Telegram's menus do. Both are
+  // absent on the very first paint, and the popup falls back rather than
+  // refusing to draw.
+  return {
+    ...playback,
+    dark: trayUsesDarkTheme(),
+    tokens: trayTokens,
+    anchor: trayAnchor,
+    // The in-app "reduce motion" switch has to reach this window too, or the one
+    // surface that is a separate process would be the only one still animating.
+    reduceMotion: Boolean(settings && settings.reduceMotion),
+  };
+}
+
+// Which corner of the popup the pointer is nearest, in the popup's own frame.
+// Computed from the final rectangle rather than from the taskbar edge, so it
+// stays correct whether the taskbar is at the bottom, top, or either side.
+function trayAnchorForCursor(rect, point) {
+  if (!rect || !point) return { x: 'right', y: 'bottom' };
+  return {
+    x: (point.x < rect.x + rect.width / 2) ? 'left' : 'right',
+    y: (point.y < rect.y + rect.height / 2) ? 'top' : 'bottom',
+  };
+}
+
+// Keeps the popup inside the work area, preferring the usual placement just
+// above and right-aligned to the pointer.
+function placeTrayPopup(width, height, point, area) {
+  const x = Math.max(
+    area.x + 6,
+    Math.min(point.x - width + 18, area.x + area.width - width - 6));
+  const y = Math.max(
+    area.y + 6,
+    Math.min(point.y - height - 8, area.y + area.height - height - 6));
+  return { x: Math.round(x), y: Math.round(y), width, height };
+}
+
+function showTrayPopupNow(size) {
+  if (!trayPopup || trayPopup.isDestroyed()) return;
+  const point = trayPopupPendingPoint || screen.getCursorScreenPoint();
+  const area = screen.getDisplayNearestPoint(point).workArea;
+  const width = size && size.width ? size.width : TRAY_POPUP_FALLBACK.width;
+  const height = size && size.height ? size.height : TRAY_POPUP_FALLBACK.height;
+  const rect = placeTrayPopup(width, height, point, area);
+  trayAnchor = trayAnchorForCursor(rect, point);
+  trayPopup.setBounds({ x: rect.x, y: rect.y, width: rect.width, height: rect.height }, false);
+  trayPopup.show();
+  trayPopup.focus();
+  // Sent after the window is visible and correctly sized, so the popup plays its
+  // entrance once, at the right geometry and with the right palette.
+  trayPopupState();
+}
+
+function settleTrayPopupSize(size) {
+  if (trayPopupSized) return;
+  trayPopupSized = true;
+  clearTimeout(trayPopupFallback);
+  showTrayPopupNow(size);
 }
 
 function showTrayPopup() {
-  if (!trayPopup || trayPopup.isDestroyed()) {
-    trayPopup = new BrowserWindow({
-      width: 292, height: 318, show: false, frame: false, transparent: true,
-      resizable: false, movable: false, minimizable: false, maximizable: false,
-      skipTaskbar: true, alwaysOnTop: true, hasShadow: false,
-      backgroundColor: '#00000000', roundedCorners: true,
-      webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: false, backgroundThrottling: true },
-    });
-    trayPopup.setMenuBarVisibility(false);
-    trayPopup.loadFile(path.join(__dirname, '..', 'src', 'tray-menu.html'));
-    trayPopup.on('blur', closeTrayPopup);
-    trayPopup.on('closed', () => { trayPopup = null; });
-    trayPopup.webContents.on('did-finish-load', trayPopupState);
+  if (trayPopup && !trayPopup.isDestroyed()) {
+    // A second right-click while it is open is a dismiss, matching the toggle
+    // behaviour of an OS menu.
+    closeTrayPopup();
+    return;
   }
-  const point = screen.getCursorScreenPoint();
-  const area = screen.getDisplayNearestPoint(point).workArea;
-  const width = 292;
-  const height = 318;
-  const x = Math.max(area.x + 6, Math.min(point.x - width + 18, area.x + area.width - width - 6));
-  const y = Math.max(area.y + 6, Math.min(point.y - height - 8, area.y + area.height - height - 6));
-  trayPopup.setPosition(Math.round(x), Math.round(y), false);
-  trayPopup.show();
-  trayPopup.focus();
-  trayPopupState();
+  trayPopupPendingPoint = screen.getCursorScreenPoint();
+  trayPopupSized = false;
+  trayPopup = new BrowserWindow({
+    width: TRAY_POPUP_FALLBACK.width,
+    height: TRAY_POPUP_FALLBACK.height,
+    show: false, frame: false, transparent: true,
+    resizable: false, movable: false, minimizable: false, maximizable: false,
+    skipTaskbar: true, alwaysOnTop: true,
+    // Every kind of outer shadow is off on purpose. The app runs without hardware
+    // acceleration, so a translucent shadow outside the panel -- whether from CSS
+    // or from the window system -- cannot blend into the desktop and instead
+    // shows up as a visible dark ring around the menu. With the window sized
+    // exactly to the panel and no shadow anywhere, there is no margin left in
+    // which an artifact could appear; the panel's own border and inner highlight
+    // provide the edge. roundedCorners is off for the same reason: the operating
+    // system would round a rectangular window whose panel is already rounded,
+    // and the mismatch leaves fringes at the corners.
+    hasShadow: false, roundedCorners: false,
+    backgroundColor: '#00000000',
+    webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: false, backgroundThrottling: true },
+  });
+  trayPopup.setMenuBarVisibility(false);
+  trayPopup.loadFile(path.join(__dirname, '..', 'src', 'tray-menu.html'));
+  trayPopup.on('blur', closeTrayPopup);
+  trayPopup.on('closed', () => { trayPopup = null; });
+  trayPopup.webContents.on('did-finish-load', () => {
+    trayPopupState();
+  });
+  // The popup reports its measured size, but a failure there must not leave the
+  // user with a tray icon that does nothing. Fall back to the reference size.
+  trayPopupFallback = setTimeout(() => settleTrayPopupSize(null), 500);
 }
 
 function renderTray() {
@@ -1949,6 +2035,20 @@ ipcMain.on('favorites:save', (_event, ids) => {
 
 ipcMain.handle('tray:state', () => trayState());
 ipcMain.on('tray:ready', trayPopupState);
+ipcMain.on('tray:sized', (_event, size) => {
+  if (!size || !Number.isFinite(size.width) || !Number.isFinite(size.height)) return;
+  settleTrayPopupSize({
+    width: Math.max(200, Math.round(size.width)),
+    height: Math.max(160, Math.round(size.height)),
+  });
+});
+ipcMain.on('appearance:report', (_event, tokens) => {
+  if (!tokens || typeof tokens !== 'object') return;
+  trayTokens = tokens;
+  // The popup may already be open when the look changes, so it is repainted
+  // rather than only being correct the next time it opens.
+  trayPopupState();
+});
 ipcMain.on('tray:command', (_event, command) => {
   closeTrayPopup();
   if (command === 'show') return showWindow();

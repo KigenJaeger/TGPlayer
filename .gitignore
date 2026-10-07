@@ -13,6 +13,7 @@ dist-final/
 
 # Local build output used while dist-final was locked by another process.
 dist-build/
+dist-staging/
 
 # Runtime diagnostics and dependency download caches -- machine-local only.
 runtime-logs/

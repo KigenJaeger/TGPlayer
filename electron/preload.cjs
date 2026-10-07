@@ -92,12 +92,22 @@ contextBridge.exposeInMainWorld('tgPlayer', {
     command: (command) => ipcRenderer.send('tray:command', String(command || 'dismiss')),
     state: () => ipcRenderer.invoke('tray:state'),
     ready: () => ipcRenderer.send('tray:ready'),
+    // The popup measures itself once its fonts and rows have laid out, and the
+    // main process sizes the window to that before showing it. A fixed size
+    // would clip the menu the moment a row height or the font stack changed.
+    sized: (size) => ipcRenderer.send('tray:sized', size),
     onState: (handler) => {
       if (typeof handler !== 'function') return () => {};
       const listener = (_event, state) => handler(state || {});
       ipcRenderer.on('tray:state', listener);
       return () => ipcRenderer.removeListener('tray:state', listener);
     },
+  },
+  // Only the sign-in window uses this. It publishes the resolved design tokens
+  // so the tray popup can be painted from the same definitions instead of a
+  // second, hand-kept copy of the palettes.
+  appearance: {
+    report: (tokens) => ipcRenderer.send('appearance:report', tokens),
   },
   window: {
     minimize: () => ipcRenderer.send('window:minimize'),

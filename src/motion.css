@@ -1,0 +1,204 @@
+/* TGPlayer motion layer ----------------------------------------------------
+   The mechanical half of the interface, aligned to Telegram Desktop's motion
+   language: short durations, decelerating curves, and a hard rule that entering
+   is quick-and-settling while leaving is slower-and-eased-in.
+
+   Loaded after styles.css on purpose. Everything here is additive -- new tokens,
+   new keyframes, new utility classes -- so no existing rule is silently
+   overridden at equal specificity. styles.css consumes the tokens; it does not
+   define them.
+
+   Why these numbers: they are the values Telegram Desktop actually ships
+   (see docs/motion-spec.md). A micro-interaction there is 100-200ms, a page
+   transition 150-200ms, an entrance 200-320ms, and a leave is deliberately
+   slower than the matching enter. Nothing in this interface is allowed to be
+   slow for its own sake. */
+
+:root {
+  /* Timing scale. */
+  --motion-instant: 100ms;   /* press, icon swap */
+  --motion-fast: 150ms;      /* the default: fades, slides, reveals */
+  --motion-normal: 200ms;    /* panels, overlays, menu entrances */
+  --motion-slow: 320ms;      /* content entrance, text replacement */
+  --motion-exit: 600ms;      /* the slowest leave; only for large surfaces */
+  --motion-ambient: 800ms;   /* one cycle of a breathing loop */
+  --motion-glare: 700ms;     /* one highlight sweep */
+  --motion-ripple: 200ms;    /* one ripple expansion */
+  --motion-stagger: 24ms;    /* per-item delay in a list reveal */
+
+  /* Easing set. Named for the job, not the curve, because a page slide and a
+     panel fade want different shapes even when both are "ease out". */
+  --ease-slide: cubic-bezier(.075, .82, .165, 1);   /* ~easeOutCirc */
+  --ease-enter: cubic-bezier(.23, 1, .32, 1);       /* ~easeOutQuint */
+  --ease-fade: cubic-bezier(.215, .61, .355, 1);    /* ~easeOutCubic */
+  --ease-exit: cubic-bezier(.55, .055, .675, .19);  /* ~easeInCubic */
+  --ease-bounce: cubic-bezier(.34, 1.56, .64, 1);   /* ~easeOutBack */
+  --ease-breath: cubic-bezier(.445, .05, .55, .95); /* ~sineInOut */
+  --ease-ripple: cubic-bezier(.075, .82, .165, 1);  /* ~easeOutCirc */
+
+  /* Back-compat: the stylesheet had a single --ease before the token layer
+     existed. Aliasing it rather than deleting it means the old rules are
+     retuned in one place instead of 18. */
+  --ease: var(--ease-fade);
+
+  /* Ripple ink. Reads on both light and dark surfaces the way Telegram's
+     themed ripple does, because it is derived from the button's own colour. */
+  --ripple-ink: currentColor;
+  --ripple-opacity: .26;
+}
+
+/* --- Shared keyframes ------------------------------------------------------ */
+
+/* A breathing dot or glyph: scale up and dim, then return. Used for "live"
+   indicators, which should look alive without drawing the eye to a spinner. */
+@keyframes motion-breath {
+  50% { transform: scale(1.12); opacity: .62; }
+}
+
+/* One highlight sweeping across a surface. Kept as a transform so it stays on
+   the compositor and never triggers layout. */
+@keyframes motion-sheen {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(210%); }
+}
+
+@keyframes motion-glare {
+  from { transform: translateX(-130%) skewX(-18deg); }
+  to { transform: translateX(240%) skewX(-18deg); }
+}
+
+@keyframes motion-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* A list item arriving. Paired with --motion-stagger on the parent so a list
+   resolves as a wave rather than a single block. */
+@keyframes motion-item-in {
+  from { opacity: 0; transform: translateY(9px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* --- Utilities ------------------------------------------------------------- */
+
+/* Ripple. Attached by TGMotion.ripple to any clickable surface. `overflow:
+   hidden` keeps the ink inside a rounded shape. Positioning is added only when
+   the host is statically positioned, so an absolutely-positioned control (a
+   modal close button, say) keeps the placement it defines elsewhere. */
+.ripple-host { overflow: hidden; }
+.ripple-host-position { position: relative; }
+
+/* The ink expands at full strength and then *stays* until it is released: the
+   expansion and the fade are two separate animations. Fading during the
+   expansion, which is what a single sweep does, makes the press read as timid
+   rather than as a solid highlight under the finger. */
+.ripple-ink {
+  position: absolute;
+  border-radius: 50%;
+  background: var(--ripple-ink);
+  pointer-events: none;
+  transform: scale(0);
+  will-change: transform, opacity;
+  animation: motion-ripple-in var(--motion-ripple) var(--ease-ripple) forwards;
+}
+.ripple-ink.releasing {
+  animation: motion-ripple-out var(--motion-fast) var(--ease-fade) forwards;
+}
+@keyframes motion-ripple-in {
+  from { transform: scale(0); opacity: var(--ripple-opacity); }
+  to { transform: scale(1); opacity: var(--ripple-opacity); }
+}
+@keyframes motion-ripple-out {
+  from { transform: scale(1); opacity: var(--ripple-opacity); }
+  to { transform: scale(1); opacity: 0; }
+}
+
+/* Breathing indicator. The host keeps its layout box; only the paint moves. */
+.breath { animation: motion-breath var(--motion-ambient) var(--ease-breath) infinite; }
+
+/* Skeleton placeholder for a list that is still loading. The sheen is a
+   pseudo-element so the placeholder markup stays a plain empty block. */
+.skeleton { position: relative; overflow: hidden; }
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 18%,
+    color-mix(in srgb, var(--surface) 72%, transparent) 50%,
+    transparent 82%);
+  animation: motion-sheen var(--motion-glare) linear infinite;
+}
+.skeleton-block { height: 12px; border-radius: 7px; background: color-mix(in srgb, var(--muted) 18%, transparent); }
+
+/* One-time highlight sweep on hover, for the single strongest action in a view.
+   Telegram runs its gradient-button glare periodically; here it is tied to
+   hover, so a resting screen has no perpetual motion. */
+.motion-glare { position: relative; overflow: hidden; }
+.motion-glare::after {
+  content: "";
+  position: absolute;
+  top: -30%;
+  bottom: -30%;
+  left: 0;
+  width: 45%;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(
+    100deg,
+    transparent,
+    color-mix(in srgb, #fff 46%, transparent),
+    transparent);
+}
+.motion-glare:hover::after {
+  opacity: 1;
+  animation: motion-glare var(--motion-glare) var(--ease-fade);
+}
+
+/* List reveal. Rendered items get .motion-item plus an inline --i index;
+   TGMotion.stagger assigns both. */
+.motion-item {
+  animation: motion-item-in var(--motion-fast) var(--ease-enter) both;
+  animation-delay: calc(var(--motion-stagger) * var(--i, 0));
+}
+
+/* A surface that JS fades in and out rather than toggling display, so the
+   leave can play before the element is hidden. */
+.motion-hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+
+/* Exit curve. TGMotion.leave adds this immediately before removing the visible
+   class, so a surface leaves on the ease-in curve instead of inheriting the
+   entrance curve from its own rule. One rule covers every such surface, which is
+   why it is !important: the per-component transitions are more specific. */
+.leaving {
+  transition-duration: var(--motion-fast) !important;
+  transition-timing-function: var(--ease-exit) !important;
+}
+
+/* The fly layer for the parabolic "add to queue / add to playlist" motion.
+   Fixed and above everything, and never interactive. */
+.motion-fly-layer { position: fixed; z-index: 45; pointer-events: none; inset: 0; }
+.motion-fly-item {
+  position: absolute;
+  overflow: hidden;
+  will-change: transform, opacity;
+  box-shadow: 0 12px 28px rgba(20, 20, 19, .22);
+}
+
+/* --- Reduced motion -------------------------------------------------------
+   The app has a manual "reduce motion" switch (body.reduce-motion) and the OS
+   has its own setting. Both mean the same thing: no intermediate frames. CSS
+   loops are collapsed here; JS tweens are short-circuited inside TGMotion so
+   they land on their final value instead of stalling at frame zero. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+  .motion-glare:hover::after { animation: none; opacity: 0; }
+  .skeleton::after { animation: none; opacity: .5; }
+}
